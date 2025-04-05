@@ -1,77 +1,41 @@
 package metrics
 
 import (
-
 	log "github.com/sirupsen/logrus"
 
-	linuxproc "github.com/c9s/goprocinfo/linux"
+	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/mem"
 )
 
-type MetricCollector struct {
-    cpu     linuxproc.Stat
-    mem     linuxproc.MemInfo
-    disk    []linuxproc.DiskStat
-    net     []linuxproc.NetworkStat
-}
-
-
-func New() MetricCollector {
-    mc := MetricCollector{}
-
-    go mc.Collect()
-
-    return mc
-}
-
-func (mc *MetricCollector) Collect() {
-    for {
-        mc.collectCPU()
-        mc.collectRAM()
-        mc.collectMemory()
-        mc.collectNetwork()
-    }
-}
-
-
-func (mc *MetricCollector) collectCPU() {
-    stat, err := linuxproc.ReadStat("/proc/stat")
+func collectCPU() float64 {
+    stat, err := cpu.Percent(0, false)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"ERROR": err,
 		}).Fatal("FAILED TO READ /proc/stat")
 	}
-    mc.cpu = *stat
+    return stat[0] / 100
 }
 
-func (mc *MetricCollector) collectRAM() {
-	stat, err := linuxproc.ReadMemInfo("/proc/meminfo")
+func collectRAM() (float64) {
+    stat, err := mem.VirtualMemory()
 	if err != nil {
 		log.WithFields(log.Fields{
 			"ERROR": err,
-		}).Fatal("FAILED TO READ /proc/net/dev")
+		}).Fatal("FAILED TO READ /proc/meminfo")
 	}
-    mc.mem = *stat
+	return stat.UsedPercent / 100
 }
 
 /*
 TODO: Look into whether I should collect ReadDisk() vs ReadDiskStat()
 */
-func (mc *MetricCollector) collectMemory() {
-	stat, err := linuxproc.ReadDiskStats("/proc/diskstats")
-	if err != nil {
-		log.WithFields(log.Fields{
-			"ERROR": err,
-		}).Fatal("FAILED TO READ /proc/net/dev")
-	}
-    mc.disk = stat
+func collectMemory() {
+    /* TODO: Look into how to include Disk Statistics */
+    /* Potentially attach the node directories to the pods */
 }
 
-func (mc *MetricCollector) collectNetwork() {
-	stat, err := linuxproc.ReadNetworkStat("/proc/net/dev")
-	if err != nil {
-		log.WithFields(log.Fields{
-			"ERROR": err,
-		}).Fatal("FAILED TO READ /proc/net/dev")
-	}
-    mc.net = stat
+func collectNetwork() {
+    /* TODO: Look into how to include Net Statistics without knowing capacity*/
+    /* Look into number of packets dropped */
 }
