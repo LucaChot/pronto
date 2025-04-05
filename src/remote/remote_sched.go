@@ -8,8 +8,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	pb "github.com/LucaChot/basic_sched/dist_sched/message"
-    metrics "github.com/LucaChot/basic_sched/dist_sched/metrics"
+	pb "github.com/LucaChot/pronto/src/message"
+    metrics "github.com/LucaChot/pronto/src/metrics"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

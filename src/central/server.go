@@ -6,7 +6,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-	pb "github.com/LucaChot/basic_sched/dist_sched/message"
+	pb "github.com/LucaChot/pronto/src/message"
 )
 
 

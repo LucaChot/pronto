@@ -13,7 +13,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/flowcontrol"
-	pb "github.com/LucaChot/basic_sched/dist_sched/message"
+	pb "github.com/LucaChot/pronto/src/message"
 )
 
 type CentralScheduler struct {

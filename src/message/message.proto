@@ -14,7 +14,7 @@
 
 syntax = "proto3";
 
-option go_package = "github.com/LucaChot/basic_sched/dist_sched/message";
+option go_package = "github.com/LucaChot/pronto/src/message";
 
 
 package message;

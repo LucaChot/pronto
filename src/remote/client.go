@@ -4,7 +4,7 @@ import (
 	"net"
 	"time"
 
-	pb "github.com/LucaChot/basic_sched/dist_sched/message"
+	pb "github.com/LucaChot/pronto/src/message"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
