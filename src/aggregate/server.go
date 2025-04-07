@@ -4,13 +4,15 @@ import (
 	"context"
 	"net"
 
+	pb "github.com/LucaChot/pronto/src/message"
 	log "github.com/sirupsen/logrus"
+	"gonum.org/v1/gonum/mat"
 	"google.golang.org/grpc"
 )
 
 
 
-func (ctl *Aggregator) startAggregateServer() {
+func (agg *Aggregator) startAggregateServer() {
     lis, err := net.Listen("tcp", ":50052")
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -19,7 +21,7 @@ func (ctl *Aggregator) startAggregateServer() {
 	}
 
 	s := grpc.NewServer()
-    //pb.RegisterAggregateServer(s, agg)
+    pb.RegisterAggregateMergeServer(s, agg)
 
 	log.WithFields(log.Fields{
 		"ADDRESS": lis.Addr(),
@@ -34,18 +36,14 @@ func (ctl *Aggregator) startAggregateServer() {
 	}()
 }
 
-func (ctl *Aggregator) RequestGlobalMerge() {
+/*
+Read the pointer to the struct containing both the U and Sigma
+Uses atomic.Pointer[T] to ensure atomicity
+Research into Golang's memory model
+*/
+func (agg *Aggregator) RequestGlobalMerge(ctx context.Context, in *pb.DenseMatrix) (*pb.DenseMatrix, error) {
+    log.Debug("RECEIVED AGGREGATE REQUEST")
     /*
-    log.WithFields(log.Fields{
-        "NODE":     in.Node,
-    }).Debug("RECEIVED POD REQUEST")
-    */
-
-    /*
-    * Read the pointer to the struct containing both the U and Sigma *
-    * Uses atomic.Pointer[T] to ensure atomicity *
-    * Research into Golang's memory model *
-
     U, Sigma = pointer.read()
 
     agg.channel <- (in.U, in.Sigma)
@@ -56,5 +54,16 @@ func (ctl *Aggregator) RequestGlobalMerge() {
         Sigma: Sigma'
     }, nil
     */
+    inUSigma := mat.NewDense(int(in.Rows), int(in.Cols), in.Data)
+    agg.matrices<- inUSigma
+
+    aggUSigma := agg.aggregate.Load()
+
+    rows, cols := aggUSigma.Dims()
+    return &pb.DenseMatrix{
+        Rows: int64(rows),
+        Cols: int64(cols),
+        Data: aggUSigma.RawMatrix().Data,
+    }, nil
 }
 

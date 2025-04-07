@@ -29,3 +29,13 @@ message EmptyReply {}
 service PodPlacement {
   rpc RequestPod(PodRequest) returns (EmptyReply);
 }
+
+message DenseMatrix {
+  int64 rows = 1;
+  int64 cols = 2;
+  repeated double data = 3 [packed=true];
+}
+
+service AggregateMerge {
+  rpc RequestAggMerge(DenseMatrix) returns (DenseMatrix);
+}

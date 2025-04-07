@@ -24,31 +24,64 @@ We could add fault tolerance by having the remote schedulers use the pod service
 and so when a pod restarts, they are still able to communicate with this pod.
 */
 
+import (
+	"sync/atomic"
+
+	"gonum.org/v1/gonum/mat"
+
+    mt "github.com/LucaChot/pronto/src/matrix"
+	pb "github.com/LucaChot/pronto/src/message"
+)
+
+const MAXWAITING = 20
+const R = 10
+
 type Aggregator struct {
-    // pipe
-    //pb.UnimplementedAggregateServer
+    matrices chan *mat.Dense
+    aggregate atomic.Pointer[mat.Dense]
+    pb.UnimplementedAggregateMergeServer
 }
 
-func New() (Aggregator) {
-    agg := Aggregator {}
-
-    agg.startAggregateServer()
-
-    return agg
-}
-
-func (agg *Aggregator) Aggregate()  {
-    /*
-    for {
-        inU, inSigma <- agg.ch
-
-        * Uses sync/atomic pointer *
-        U, Sigma = pointer.read()
-
-        U', Sigma' := Merge(U, Sigma, inU, inSigma, r)
-
-        pointer.update(U', Sigma')
+func New() (*Aggregator) {
+    agg := Aggregator {
+        matrices: make(chan *mat.Dense, MAXWAITING),
     }
-    */
+
+    go agg.startAggregateServer()
+
+    return &agg
 }
+
+/*
+TODO: Check whether the remote schedulers expose the matrix with ranks that are
+less than or greater than r?
+I.e. Check if there may be a mismatch in the rank
+*/
+func (agg *Aggregator) Aggregate()  {
+    for {
+        inUSigma := <- agg.matrices
+        _, r := inUSigma.Dims()
+
+        /* Uses sync/atomic pointer */
+        currUSigma := agg.aggregate.Load()
+
+        U, Sigma := mt.AggMerge(currUSigma, inUSigma, r)
+
+        var newUSigma *mat.Dense
+        newUSigma.Mul(U, Sigma)
+
+        agg.aggregate.Store(newUSigma)
+    }
+}
+
+/*
+Removed the need to create a new Sigma matrix by passing in the product
+_, inc := inUSigma.Dims()
+inIData := make([]float64, inc)
+for i := range inc {
+    inIData[i] = 1.0
+}
+inI := mat.NewDiagonal(inc, inIData)
+*/
+
 
