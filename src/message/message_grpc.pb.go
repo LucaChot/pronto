@@ -16,7 +16,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.5.1
 // - protoc             v3.21.12
-// source: dist_sched/message/message.proto
+// source: src/message/message.proto
 
 package message
 
@@ -131,5 +131,107 @@ var PodPlacement_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "dist_sched/message/message.proto",
+	Metadata: "src/message/message.proto",
+}
+
+const (
+	AggregateMerge_RequestAggMerge_FullMethodName = "/message.AggregateMerge/RequestAggMerge"
+)
+
+// AggregateMergeClient is the client API for AggregateMerge service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type AggregateMergeClient interface {
+	RequestAggMerge(ctx context.Context, in *DenseMatrix, opts ...grpc.CallOption) (*DenseMatrix, error)
+}
+
+type aggregateMergeClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewAggregateMergeClient(cc grpc.ClientConnInterface) AggregateMergeClient {
+	return &aggregateMergeClient{cc}
+}
+
+func (c *aggregateMergeClient) RequestAggMerge(ctx context.Context, in *DenseMatrix, opts ...grpc.CallOption) (*DenseMatrix, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(DenseMatrix)
+	err := c.cc.Invoke(ctx, AggregateMerge_RequestAggMerge_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AggregateMergeServer is the server API for AggregateMerge service.
+// All implementations must embed UnimplementedAggregateMergeServer
+// for forward compatibility.
+type AggregateMergeServer interface {
+	RequestAggMerge(context.Context, *DenseMatrix) (*DenseMatrix, error)
+	mustEmbedUnimplementedAggregateMergeServer()
+}
+
+// UnimplementedAggregateMergeServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedAggregateMergeServer struct{}
+
+func (UnimplementedAggregateMergeServer) RequestAggMerge(context.Context, *DenseMatrix) (*DenseMatrix, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RequestAggMerge not implemented")
+}
+func (UnimplementedAggregateMergeServer) mustEmbedUnimplementedAggregateMergeServer() {}
+func (UnimplementedAggregateMergeServer) testEmbeddedByValue()                        {}
+
+// UnsafeAggregateMergeServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to AggregateMergeServer will
+// result in compilation errors.
+type UnsafeAggregateMergeServer interface {
+	mustEmbedUnimplementedAggregateMergeServer()
+}
+
+func RegisterAggregateMergeServer(s grpc.ServiceRegistrar, srv AggregateMergeServer) {
+	// If the following call pancis, it indicates UnimplementedAggregateMergeServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&AggregateMerge_ServiceDesc, srv)
+}
+
+func _AggregateMerge_RequestAggMerge_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DenseMatrix)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AggregateMergeServer).RequestAggMerge(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AggregateMerge_RequestAggMerge_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AggregateMergeServer).RequestAggMerge(ctx, req.(*DenseMatrix))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// AggregateMerge_ServiceDesc is the grpc.ServiceDesc for AggregateMerge service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var AggregateMerge_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "message.AggregateMerge",
+	HandlerType: (*AggregateMergeServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "RequestAggMerge",
+			Handler:    _AggregateMerge_RequestAggMerge_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "src/message/message.proto",
 }
