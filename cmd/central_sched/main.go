@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 
-	"github.com/LucaChot/basic_sched/dist_sched/central"
+	"github.com/LucaChot/pronto/src/central"
 
 	log "github.com/sirupsen/logrus"
 )
