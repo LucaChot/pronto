@@ -50,7 +50,7 @@ func New() *CentralScheduler {
 		}).Error("error getting config")
 	}
 
-    go ctl.ctlStartPlacementServer()
+    ctl.ctlStartPlacementServer()
 
 	return ctl
 }
