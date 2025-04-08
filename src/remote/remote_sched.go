@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"os"
 
-
 	log "github.com/sirupsen/logrus"
 
+	"github.com/LucaChot/pronto/src/fpca"
 	pb "github.com/LucaChot/pronto/src/message"
-    metrics "github.com/LucaChot/pronto/src/metrics"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -20,7 +19,7 @@ import (
 type RemoteScheduler struct {
     hostname string
     onNode *v1.Node
-    mc metrics.MetricCollector
+    fp *fpca.FPCAAgent
 
     clientset   *kubernetes.Clientset
     ctlPlStub  pb.PodPlacementClient
@@ -81,7 +80,7 @@ func New() *RemoteScheduler {
     rmt.SetHostname()
     rmt.SetOnNode()
 
-    rmt.mc = metrics.New()
+    rmt.fp = fpca.New()
 
     rmt.AsClient()
 

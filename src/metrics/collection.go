@@ -6,14 +6,7 @@ import (
 	linuxproc "github.com/c9s/goprocinfo/linux"
 )
 
-func (mc *LocalFPCAAgent) Collect() {
-    mc.collectCPU()
-    mc.collectRAM()
-    mc.collectMemory()
-    mc.collectNetwork()
-}
-
-func (mc *LocalFPCAAgent) collectCPU() {
+func (mc *MetricsCollector) collectCPU() {
 	stat, err := linuxproc.ReadStat("/proc/stat")
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -23,7 +16,7 @@ func (mc *LocalFPCAAgent) collectCPU() {
 	mc.cpu = *stat
 }
 
-func (mc *LocalFPCAAgent) collectRAM() {
+func (mc *MetricsCollector) collectRAM() {
 	stat, err := linuxproc.ReadMemInfo("/proc/meminfo")
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -36,7 +29,7 @@ func (mc *LocalFPCAAgent) collectRAM() {
 /*
 TODO: Look into whether I should collect ReadDisk() vs ReadDiskStat()
 */
-func (mc *LocalFPCAAgent) collectMemory() {
+func (mc *MetricsCollector) collectMemory() {
 	stat, err := linuxproc.ReadDiskStats("/proc/diskstats")
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -46,7 +39,7 @@ func (mc *LocalFPCAAgent) collectMemory() {
 	mc.disk = stat
 }
 
-func (mc *LocalFPCAAgent) collectNetwork() {
+func (mc *MetricsCollector) collectNetwork() {
 	stat, err := linuxproc.ReadNetworkStat("/proc/net/dev")
 	if err != nil {
 		log.WithFields(log.Fields{

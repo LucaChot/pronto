@@ -1,25 +1,22 @@
-package metrics
+package fpca
 
 import (
-	log "github.com/sirupsen/logrus"
 
+	pb "github.com/LucaChot/pronto/src/message"
    "gonum.org/v1/gonum/mat"
-	linuxproc "github.com/c9s/goprocinfo/linux"
     mt "github.com/LucaChot/pronto/src/matrix"
+    mets "github.com/LucaChot/pronto/src/metrics"
 )
 
 const BatchSize = 10
 const r = 10
 
-type LocalFPCAAgent struct {
-	cpu         linuxproc.Stat
-	mem         linuxproc.MemInfo
-	disk        []linuxproc.DiskStat
-	net         []linuxproc.NetworkStat
+type FPCAAgent struct {
+    Mc         *mets.MetricsCollector
+
     U           *mat.Dense
-    lastU           *mat.Dense
+    lastU       *mat.Dense
     Sigma       *mat.DiagDense
-    B           *mat.Dense
     localU      *mat.Dense
     localSigma  *mat.DiagDense
     r           int
@@ -28,31 +25,36 @@ type LocalFPCAAgent struct {
     alpha       float64
     beta        float64
     epsilon     float64
+
+    aggStub     pb.AggregateMergeClient
 }
 
-func New() LocalFPCAAgent {
-	mc := LocalFPCAAgent{
+func New() *FPCAAgent {
+	fp := FPCAAgent{
         r: r,
     }
 
-	go mc.RunLocalUpdates()
+	go fp.RunLocalUpdates()
 
-	return mc
+	return &fp
 }
 
-func (mc *LocalFPCAAgent) RunLocalUpdates() {
+func (fp *FPCAAgent) RunLocalUpdates() {
     for {
-        mc.Collect()
+        fp.Mc.Collect()
 
-        if _, c := mc.B.Dims(); c == BatchSize {
-		    mc.FPCAEdge()
-            mc.B.Reset()
+        if _, c := fp.Mc.B.Dims(); c == BatchSize {
+		    fp.FPCAEdge()
+            fp.Mc.B.Reset()
         }
 
-        if mat.EqualApprox(mc.U, mc.lastU, mc.epsilon) {
-            //mc.RequestU
+        if !mat.EqualApprox(fp.U, fp.lastU, fp.epsilon) {
+            var uSigma *mat.Dense
+            uSigma.Mul(fp.U, fp.Sigma)
+            aggUSigma := fp.RequestAgg(uSigma)
+            fp.U, fp.Sigma = mt.AggMerge(aggUSigma, uSigma, fp.r)
         }
-        mc.U = mc.lastU
+        fp.U = fp.lastU
     }
 }
 
@@ -61,7 +63,7 @@ TODO: Ask andreas about the pseudocode of the paper, in the rank function, it as
 that the sigma is of size r x r, so what does Sigma_[r+1] do?
 TODO: Ask which version of Merge should I implement
 */
-func (mc *LocalFPCAAgent) FPCAEdge() {
+func (fp *FPCAAgent) FPCAEdge() {
     /*
     * Update embedding estimates *
     if mc.localU, mc.localSigma = 0,0:
@@ -76,17 +78,21 @@ func (mc *LocalFPCAAgent) FPCAEdge() {
     mc.GlobalU, mc.GlobalSigma := Rank(mc.GlobalU, mc.GlobalSigma, alpha, beta, r)
     */
 
-    if mc.localU == nil && mc.localSigma == nil {
-        mc.localU, mc.localSigma = mt.SVDR(mc.B, mc.r)
+    if fp.localU == nil && fp.localSigma == nil {
+        fp.localU, fp.localSigma = mt.SVDR(fp.Mc.B, fp.r)
     } else {
-        _, bc := mc.B.Dims()
+        _, bc := fp.Mc.B.Dims()
         identity := mat.NewDiagDense(bc, nil)
-        mc.localU, mc.localSigma = mt.Merge(mc.localU, mc.localSigma, mc.B, identity, mc.r, mc.enhance, mc.forget)
+        fp.localU, fp.localSigma = mt.Merge(fp.localU, fp.localSigma, fp.Mc.B, identity, fp.r, fp.enhance, fp.forget)
     }
 
-    /* Pass in rank r+1 so that we can increase the rank in the next step */
-    tempU, tempSigma := mt.AggMerge(mc.U, mc.Sigma, mc.localU, mc.localSigma, mc.r)
+    var uSigma, localUSigma *mat.Dense
+    uSigma.Mul(fp.U, fp.Sigma)
+    localUSigma.Mul(fp.localU, fp.localSigma)
 
-    mc.U, mc.Sigma = mt.Rank(tempU, tempSigma, mc.r, mc.alpha, mc.beta)
+    /* Pass in rank r+1 so that we can increase the rank in the next step */
+    tempU, tempSigma := mt.AggMerge(uSigma, localUSigma, fp.r + 1)
+
+    fp.U, fp.Sigma = mt.Rank(tempU, tempSigma, fp.r, fp.alpha, fp.beta)
 }
 
