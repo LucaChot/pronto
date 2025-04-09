@@ -8,6 +8,21 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+func (ctl *CentralScheduler) findNodes() {
+	// TODO add informer to get the list of nodes
+	nodes, _ := ctl.clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{
+		LabelSelector: fmt.Sprintf("%s!=%s", "node-role.kubernetes.io/control-plane", ""),
+	})
+	nMap := make(map[string]int)
+
+	for i, node := range nodes.Items {
+		nMap[node.Name] = i
+	}
+
+	ctl.nodeMap = nMap
+}
+
+
 /* Binds Pod p to Node n */
 func (ctl * CentralScheduler) placePodToNode(p *v1.Pod, n string) {
 		ctl.clientset.CoreV1().Pods(p.Namespace).Bind(context.TODO(), &v1.Binding{
