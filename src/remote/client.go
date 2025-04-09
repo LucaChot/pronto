@@ -47,14 +47,14 @@ func (rmt *RemoteScheduler) connectToPl(ctlAddr net.IP) {
 
 }
 
-func (rmt *RemoteScheduler) RequestPod(p *v1.Pod) {
+func (rmt *RemoteScheduler) RequestPod(signal float64) {
     ctx := context.Background()
     rmt.ctlPlStub.RequestPod(ctx, &pb.PodRequest{
         Node:   rmt.onNode.Name,
-        Pod:    p.Name,
+        Signal: signal,
     })
     log.WithFields(log.Fields{
-        "POD":      p.Name,
+        "SIGNAL":   signal,
         "NODE":     rmt.onNode.Name,
     }).Debug("SENT POD REQUEST")
 }

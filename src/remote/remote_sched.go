@@ -159,7 +159,7 @@ func (rmt *RemoteScheduler) Schedule() {
 
         signal := rmt.JobSignal()
         if signal < rmt.tr {
-            rmt.RequestPod(p)
+            rmt.RequestPod(signal)
         }
 	}
 }
