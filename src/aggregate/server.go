@@ -43,17 +43,6 @@ Research into Golang's memory model
 */
 func (agg *Aggregator) RequestGlobalMerge(ctx context.Context, in *pb.DenseMatrix) (*pb.DenseMatrix, error) {
     log.Debug("RECEIVED AGGREGATE REQUEST")
-    /*
-    U, Sigma = pointer.read()
-
-    agg.channel <- (in.U, in.Sigma)
-    U', Sigma' := Merge(U, Sigma, in.U, in.Sigma, r)
-
-    return &Response {
-        U: U'
-        Sigma: Sigma'
-    }, nil
-    */
     inUSigma := mat.NewDense(int(in.Rows), int(in.Cols), in.Data)
     agg.matrices<- inUSigma
 
@@ -67,3 +56,15 @@ func (agg *Aggregator) RequestGlobalMerge(ctx context.Context, in *pb.DenseMatri
     }, nil
 }
 
+/*
+Move Merge into Aggregate Server
+U, Sigma = pointer.read()
+
+agg.channel <- (in.U, in.Sigma)
+U', Sigma' := Merge(U, Sigma, in.U, in.Sigma, r)
+
+return &Response {
+    U: U'
+    Sigma: Sigma'
+}, nil
+*/

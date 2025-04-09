@@ -1,24 +1,33 @@
 package fpca
 
 import (
+	"sync/atomic"
 
+	mt "github.com/LucaChot/pronto/src/matrix"
 	pb "github.com/LucaChot/pronto/src/message"
-   "gonum.org/v1/gonum/mat"
-    mt "github.com/LucaChot/pronto/src/matrix"
-    mets "github.com/LucaChot/pronto/src/metrics"
+	"gonum.org/v1/gonum/mat"
 )
 
-const BatchSize = 10
 const r = 10
 
-type FPCAAgent struct {
-    Mc         *mets.MetricsCollector
+type USigmaPair struct {
+    U *mat.Dense
+    Sigma *mat.DiagDense
+}
 
-    U           *mat.Dense
+type FPCAAgent struct {
+    inB         chan *mat.Dense
+    USIgma      atomic.Pointer[USigmaPair]
+
+    adaptive    bool
+
+    b           *mat.Dense
+    u           *mat.Dense
     lastU       *mat.Dense
-    Sigma       *mat.DiagDense
+    sigma       *mat.DiagDense
     localU      *mat.Dense
     localSigma  *mat.DiagDense
+
     r           int
     forget      float64
     enhance     float64
@@ -32,6 +41,7 @@ type FPCAAgent struct {
 func New() *FPCAAgent {
 	fp := FPCAAgent{
         r: r,
+        adaptive: false,
     }
 
 	go fp.RunLocalUpdates()
@@ -41,20 +51,23 @@ func New() *FPCAAgent {
 
 func (fp *FPCAAgent) RunLocalUpdates() {
     for {
-        fp.Mc.Collect()
+        fp.b = <-fp.inB
 
-        if _, c := fp.Mc.B.Dims(); c == BatchSize {
-		    fp.FPCAEdge()
-            fp.Mc.B.Reset()
-        }
+		fp.FPCAEdge()
 
-        if !mat.EqualApprox(fp.U, fp.lastU, fp.epsilon) {
+        if !mat.EqualApprox(fp.u, fp.lastU, fp.epsilon) {
             var uSigma *mat.Dense
-            uSigma.Mul(fp.U, fp.Sigma)
+            uSigma.Mul(fp.u, fp.sigma)
             aggUSigma := fp.RequestAgg(uSigma)
-            fp.U, fp.Sigma = mt.AggMerge(aggUSigma, uSigma, fp.r)
+            fp.u, fp.sigma = mt.AggMerge(aggUSigma, uSigma, fp.r)
         }
-        fp.U = fp.lastU
+
+        fp.USIgma.Store(&USigmaPair{
+            U: fp.u,
+            Sigma: fp.sigma,
+        })
+
+        fp.u = fp.lastU
     }
 }
 
@@ -79,20 +92,24 @@ func (fp *FPCAAgent) FPCAEdge() {
     */
 
     if fp.localU == nil && fp.localSigma == nil {
-        fp.localU, fp.localSigma = mt.SVDR(fp.Mc.B, fp.r)
+        fp.localU, fp.localSigma = mt.SVDR(fp.b, fp.r)
     } else {
-        _, bc := fp.Mc.B.Dims()
+        _, bc := fp.b.Dims()
         identity := mat.NewDiagDense(bc, nil)
-        fp.localU, fp.localSigma = mt.Merge(fp.localU, fp.localSigma, fp.Mc.B, identity, fp.r, fp.enhance, fp.forget)
+        fp.localU, fp.localSigma = mt.Merge(fp.localU, fp.localSigma, fp.b, identity, fp.r, fp.enhance, fp.forget)
     }
 
     var uSigma, localUSigma *mat.Dense
-    uSigma.Mul(fp.U, fp.Sigma)
+    uSigma.Mul(fp.u, fp.sigma)
     localUSigma.Mul(fp.localU, fp.localSigma)
 
-    /* Pass in rank r+1 so that we can increase the rank in the next step */
-    tempU, tempSigma := mt.AggMerge(uSigma, localUSigma, fp.r + 1)
 
-    fp.U, fp.Sigma = mt.Rank(tempU, tempSigma, fp.r, fp.alpha, fp.beta)
+    if fp.adaptive {
+        /* Pass in rank r+1 so that we can increase the rank in the next step */
+        tempU, tempSigma := mt.AggMerge(uSigma, localUSigma, fp.r + 1)
+        fp.u, fp.sigma = mt.Rank(tempU, tempSigma, fp.r, fp.alpha, fp.beta)
+    } else {
+        fp.u, fp.sigma = mt.AggMerge(uSigma, localUSigma, fp.r + 1)
+    }
 }
 

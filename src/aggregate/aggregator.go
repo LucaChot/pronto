@@ -33,8 +33,10 @@ import (
 	pb "github.com/LucaChot/pronto/src/message"
 )
 
-const MAXWAITING = 20
-const R = 10
+const (
+    MAXWAITING = 20
+    R = 10
+)
 
 type Aggregator struct {
     matrices chan *mat.Dense
@@ -47,7 +49,7 @@ func New() (*Aggregator) {
         matrices: make(chan *mat.Dense, MAXWAITING),
     }
 
-    go agg.startAggregateServer()
+    agg.startAggregateServer()
 
     return &agg
 }

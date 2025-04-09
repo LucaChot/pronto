@@ -1,33 +1,51 @@
 package metrics
 
 import (
-   "gonum.org/v1/gonum/mat"
-	linuxproc "github.com/c9s/goprocinfo/linux"
+	"sync/atomic"
+
+	"gonum.org/v1/gonum/mat"
 )
 
-const BatchSize = 10
-const r = 10
+const (
+    d = 2
+    b = 10
+)
 
 type MetricsCollector struct {
-	cpu         linuxproc.Stat
-	mem         linuxproc.MemInfo
-	disk        []linuxproc.DiskStat
-	net         []linuxproc.NetworkStat
-
-    B           *mat.Dense
+    ys       []float64
+    Y       atomic.Pointer[mat.VecDense]
+    entries int
+    output  chan *mat.Dense
 }
 
 /* Look at potentially parallelising the setup */
 func New() *MetricsCollector {
-	mc := MetricsCollector{}
+	mc := MetricsCollector{
+        ys:  make([]float64, b * d),
+    }
 
 	return &mc
 }
 
 func (mc *MetricsCollector) Collect() {
-    mc.collectCPU()
-    mc.collectRAM()
-    mc.collectMemory()
-    mc.collectNetwork()
+    for {
+        for i := range b {
+            row := d * i
+            cpu := collectCPU()
+            mem := collectRAM()
+
+            mc.ys[row] = cpu
+            mc.ys[row + 1] = mem
+
+            mc.Y.Store(mat.NewVecDense(d, []float64{cpu, mem}))
+        }
+        bT := mat.NewDense(b, d, mc.ys)
+
+
+        var B *mat.Dense
+        B.CloneFrom(bT.T())
+
+        mc.output<- B
+    }
 }
 

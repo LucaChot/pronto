@@ -11,6 +11,7 @@ import (
 
 	"github.com/LucaChot/pronto/src/fpca"
 	pb "github.com/LucaChot/pronto/src/message"
+	"github.com/LucaChot/pronto/src/metrics"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,6 +26,8 @@ const (
 type RemoteScheduler struct {
     hostname string
     onNode *v1.Node
+
+    mc *metrics.MetricsCollector
     fp *fpca.FPCAAgent
 
     tr float64
@@ -85,13 +88,19 @@ func New() *RemoteScheduler {
         tr: TR,
     }
 
+    /* Run metrics collection */
+    rmt.mc = metrics.New()
+    go rmt.mc.Collect()
+
+    /* Run fpca */
+    rmt.fp = fpca.New()
+    go rmt.fp.RunLocalUpdates()
+
+
     /* Set the remote scheduler variables */
     rmt.SetClientset()
     rmt.SetHostname()
     rmt.SetOnNode()
-
-    rmt.fp = fpca.New()
-
     rmt.AsClient()
 
 	return rmt
@@ -103,15 +112,14 @@ func absFunc(i, j int, v float64) (float64) {
 
 
 func (rmt *RemoteScheduler) JobSignal() float64 {
-    B := rmt.fp.Mc.B
-    _, bc := B.Dims()
-    y := B.ColView(bc-1)
-
-    /* TODO: How to ensure that the U and Sigma we load are for the same
+    /* TODO: How to ensure that the B, U and Sigma we load are for the same
     * timestep. Will have to use an atomic pointer that points to be U and
     * Sigma */
-    u := rmt.fp.U
-    sigma := rmt.fp.Sigma
+    y := rmt.mc.Y.Load()
+
+    uSigmaPair := rmt.fp.USIgma.Load()
+    u := uSigmaPair.U
+    sigma := uSigmaPair.Sigma
 
     var temp, p, wP *mat.Dense
     temp.Mul(y.T(), u)
