@@ -29,7 +29,7 @@ func New() *CentralScheduler {
 
     /* Initialise scheduler values */
 	ctl := &CentralScheduler{
-		Name: "central-sched",
+		Name: "pronto",
         Bins: make(map[string]string),
     }
 

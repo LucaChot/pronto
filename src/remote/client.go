@@ -58,4 +58,3 @@ func (rmt *RemoteScheduler) RequestPod(p *v1.Pod) {
         "NODE":     rmt.onNode.Name,
     }).Debug("SENT POD REQUEST")
 }
-

@@ -3,9 +3,11 @@ package remote
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 
 	log "github.com/sirupsen/logrus"
+	"gonum.org/v1/gonum/mat"
 
 	"github.com/LucaChot/pronto/src/fpca"
 	pb "github.com/LucaChot/pronto/src/message"
@@ -16,10 +18,16 @@ import (
 	"k8s.io/client-go/rest"
 )
 
+const (
+    TR = 1
+)
+
 type RemoteScheduler struct {
     hostname string
     onNode *v1.Node
     fp *fpca.FPCAAgent
+
+    tr float64
 
     clientset   *kubernetes.Clientset
     ctlPlStub  pb.PodPlacementClient
@@ -48,7 +56,7 @@ func (rmt *RemoteScheduler) SetHostname() {
 }
 
 func (rmt *RemoteScheduler) SetOnNode() {
-    pods, err := rmt.clientset.CoreV1().Pods("basic-sched").List(context.TODO(), metav1.ListOptions{
+    pods, err := rmt.clientset.CoreV1().Pods("pronto").List(context.TODO(), metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("metadata.name=%s", rmt.hostname),
 	})
 	if err != nil {
@@ -73,7 +81,9 @@ func (rmt *RemoteScheduler) SetOnNode() {
 func New() *RemoteScheduler {
 
     /* Initialise scheduler values */
-    rmt := &RemoteScheduler{}
+    rmt := &RemoteScheduler{
+        tr: TR,
+    }
 
     /* Set the remote scheduler variables */
     rmt.SetClientset()
@@ -87,12 +97,43 @@ func New() *RemoteScheduler {
 	return rmt
 }
 
+func absFunc(i, j int, v float64) (float64) {
+    return math.Abs(v)
+}
+
+
+func (rmt *RemoteScheduler) JobSignal() float64 {
+    B := rmt.fp.Mc.B
+    _, bc := B.Dims()
+    y := B.ColView(bc-1)
+
+    /* TODO: How to ensure that the U and Sigma we load are for the same
+    * timestep. Will have to use an atomic pointer that points to be U and
+    * Sigma */
+    u := rmt.fp.U
+    sigma := rmt.fp.Sigma
+
+    var temp, p, wP *mat.Dense
+    temp.Mul(y.T(), u)
+    p.Apply(absFunc, temp)
+
+    wP.Mul(sigma, p)
+
+    return mat.Sum(wP)
+}
+
 /* Core Scheduling loop */
+/*
+TODO: Determine whether I calculate this on pod event or whether I send signal
+periodically
+TODO: Change to periodic as this will reduce delay, scheduler can use the
+latest value received
+*/
 func (rmt *RemoteScheduler) Schedule() {
 
     /* Creates a watch interface for all pods that use this scheduler */
 	watch, _ := rmt.clientset.CoreV1().Pods("").Watch(context.TODO(), metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("spec.schedulerName=%s,spec.nodeName=", "central-sched"),
+		FieldSelector: fmt.Sprintf("spec.schedulerName=%s,spec.nodeName=", "pronto"),
 	})
 
     /* Loops over all new pod events we detect */
@@ -108,7 +149,10 @@ func (rmt *RemoteScheduler) Schedule() {
 			"pod":       p.Name,
 		}).Debug("BEGIN POD REQUEST")
 
-        rmt.RequestPod(p)
+        signal := rmt.JobSignal()
+        if signal < rmt.tr {
+            rmt.RequestPod(p)
+        }
 	}
 }
 
