@@ -22,6 +22,13 @@ OUTPUT = bin/remote
 DOCKER_NAME = remote-sched
 endif
 
+ifeq ($(SCHED), AGG)
+BINARY = cmd/aggregator/main.go
+BINARY += msg
+OUTPUT = bin/agg
+DOCKER_NAME = aggregator
+endif
+
 
 all: build push
 
@@ -33,7 +40,7 @@ compile: ${BINARY}
 	go build ${GO_FLAGS} -o ${OUTPUT} $<
 
 build: compile
-	docker build -t ${DOCKER_USERNAME}/${DOCKER_NAME}:${TAG} -f docker_images/${DOCKER_NAME} .
+	docker build -t ${DOCKER_USERNAME}/${DOCKER_NAME}:${TAG} -f docker/${DOCKER_NAME} .
 
 push:
 	docker push ${DOCKER_USERNAME}/${DOCKER_NAME}:${TAG}

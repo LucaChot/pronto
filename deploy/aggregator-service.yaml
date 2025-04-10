@@ -1,0 +1,16 @@
+# Define a service for remote schedulers to aggregate matrix space
+apiVersion: v1
+kind: Service
+metadata:
+  name: agg-svc
+  namespace: basic-sched
+spec:
+  clusterIP: None
+  selector:
+    component: aggregator
+    tier: control-plane
+    name: aggregator
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 50052
