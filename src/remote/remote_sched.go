@@ -59,7 +59,7 @@ func (rmt *RemoteScheduler) SetHostname() {
 }
 
 func (rmt *RemoteScheduler) SetOnNode() {
-    pods, err := rmt.clientset.CoreV1().Pods("pronto").List(context.TODO(), metav1.ListOptions{
+    pods, err := rmt.clientset.CoreV1().Pods("basic-sched").List(context.TODO(), metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("metadata.name=%s", rmt.hostname),
 	})
 	if err != nil {

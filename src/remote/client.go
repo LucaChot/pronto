@@ -9,7 +9,6 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	v1 "k8s.io/api/core/v1"
 )
 
 func (rmt *RemoteScheduler) AsClient() {

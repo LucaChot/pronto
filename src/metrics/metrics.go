@@ -42,10 +42,10 @@ func (mc *MetricsCollector) Collect() {
         bT := mat.NewDense(b, d, mc.ys)
 
 
-        var B *mat.Dense
+        var B mat.Dense
         B.CloneFrom(bT.T())
 
-        mc.output<- B
+        mc.output<- &B
     }
 }
 
