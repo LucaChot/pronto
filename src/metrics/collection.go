@@ -14,7 +14,7 @@ func collectCPU() float64 {
 			"ERROR": err,
 		}).Fatal("FAILED TO READ /proc/stat")
 	}
-    return stat[0]
+    return stat[0] / 100
 }
 
 func collectRAM() (float64) {
@@ -24,7 +24,7 @@ func collectRAM() (float64) {
 			"ERROR": err,
 		}).Fatal("FAILED TO READ /proc/meminfo")
 	}
-	return stat.UsedPercent
+	return stat.UsedPercent / 100
 }
 
 /*

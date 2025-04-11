@@ -55,5 +55,5 @@ func (rmt *RemoteScheduler) RequestPod(signal float64) {
     log.WithFields(log.Fields{
         "SIGNAL":   signal,
         "NODE":     rmt.onNode.Name,
-    }).Debug("SENT POD REQUEST")
+    }).Debug("RMT: SENT POD REQUEST")
 }

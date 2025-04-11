@@ -3,12 +3,16 @@ package fpca
 import (
 	"sync/atomic"
 
+	log "github.com/sirupsen/logrus"
 	mt "github.com/LucaChot/pronto/src/matrix"
 	pb "github.com/LucaChot/pronto/src/message"
 	"gonum.org/v1/gonum/mat"
 )
 
-const r = 10
+const (
+    d = 2
+    r = 2
+)
 
 type USigmaPair struct {
     U *mat.Dense
@@ -16,7 +20,7 @@ type USigmaPair struct {
 }
 
 type FPCAAgent struct {
-    inB         chan *mat.Dense
+    inB         <-chan *mat.Dense
     USIgma      atomic.Pointer[USigmaPair]
 
     adaptive    bool
@@ -38,11 +42,26 @@ type FPCAAgent struct {
     aggStub     pb.AggregateMergeClient
 }
 
-func New() *FPCAAgent {
+func New(ch <-chan *mat.Dense) *FPCAAgent {
 	fp := FPCAAgent{
-        r: r,
+        inB: ch,
         adaptive: false,
+        r: r,
+        enhance: 1.1,
+        forget: 0.9,
+        epsilon: 0,
     }
+
+    fp.u = mat.NewDense(d, r, nil)
+    fp.sigma = mat.NewDiagDense(r, nil)
+    fp.lastU = fp.u
+
+    fp.USIgma.Store(&USigmaPair{
+        U: fp.u,
+        Sigma: fp.sigma,
+    })
+
+    fp.AsClient()
 
 	go fp.RunLocalUpdates()
 
@@ -51,23 +70,26 @@ func New() *FPCAAgent {
 
 func (fp *FPCAAgent) RunLocalUpdates() {
     for {
+        log.Debug("FPCA: WAITING ON B")
         fp.b = <-fp.inB
+        log.Debug("FPCA: RECIEVED B AND BEGINNING FPCA")
 
 		fp.FPCAEdge()
 
         if !mat.EqualApprox(fp.u, fp.lastU, fp.epsilon) {
-            var uSigma *mat.Dense
+            var uSigma mat.Dense
             uSigma.Mul(fp.u, fp.sigma)
-            aggUSigma := fp.RequestAgg(uSigma)
-            fp.u, fp.sigma = mt.AggMerge(aggUSigma, uSigma, fp.r)
+            aggUSigma := fp.RequestAgg(&uSigma)
+            fp.u, fp.sigma = mt.AggMerge(aggUSigma, &uSigma, fp.r)
         }
 
         fp.USIgma.Store(&USigmaPair{
             U: fp.u,
             Sigma: fp.sigma,
         })
+        log.Debug("FPCA: UPDATED U AND SIGMA")
 
-        fp.u = fp.lastU
+        fp.lastU = fp.u
     }
 }
 
@@ -99,17 +121,17 @@ func (fp *FPCAAgent) FPCAEdge() {
         fp.localU, fp.localSigma = mt.Merge(fp.localU, fp.localSigma, fp.b, identity, fp.r, fp.enhance, fp.forget)
     }
 
-    var uSigma, localUSigma *mat.Dense
+    var uSigma, localUSigma mat.Dense
     uSigma.Mul(fp.u, fp.sigma)
     localUSigma.Mul(fp.localU, fp.localSigma)
 
 
     if fp.adaptive {
         /* Pass in rank r+1 so that we can increase the rank in the next step */
-        tempU, tempSigma := mt.AggMerge(uSigma, localUSigma, fp.r + 1)
+        tempU, tempSigma := mt.AggMerge(&uSigma, &localUSigma, fp.r + 1)
         fp.u, fp.sigma = mt.Rank(tempU, tempSigma, fp.r, fp.alpha, fp.beta)
     } else {
-        fp.u, fp.sigma = mt.AggMerge(uSigma, localUSigma, fp.r + 1)
+        fp.u, fp.sigma = mt.AggMerge(&uSigma, &localUSigma, fp.r)
     }
 }
 

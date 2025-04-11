@@ -40,7 +40,7 @@ func (ctl *CentralScheduler) RequestPod(ctx context.Context, in *pb.PodRequest) 
     log.WithFields(log.Fields{
         "SIGNAL":      in.Signal,
         "NODE":     in.Node,
-    }).Debug("RECEIVED POD REQUEST")
+    }).Debug("RECEIVED JOB SIGNAL")
 
     index := ctl.nodeMap[in.Node]
     ctl.nodeSignals[index].Store(math.Float64bits(in.Signal))

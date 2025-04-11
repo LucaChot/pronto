@@ -29,13 +29,15 @@ import (
 
 	"gonum.org/v1/gonum/mat"
 
+	log "github.com/sirupsen/logrus"
     mt "github.com/LucaChot/pronto/src/matrix"
 	pb "github.com/LucaChot/pronto/src/message"
 )
 
 const (
     MAXWAITING = 20
-    R = 10
+    D = 2
+    R = 2
 )
 
 type Aggregator struct {
@@ -48,6 +50,8 @@ func New() (*Aggregator) {
     agg := Aggregator {
         matrices: make(chan *mat.Dense, MAXWAITING),
     }
+
+    agg.aggregate.Store(mat.NewDense(D, R, nil))
 
     agg.startAggregateServer()
 
@@ -69,10 +73,11 @@ func (agg *Aggregator) Aggregate()  {
 
         U, Sigma := mt.AggMerge(currUSigma, inUSigma, r)
 
-        var newUSigma *mat.Dense
+        var newUSigma mat.Dense
         newUSigma.Mul(U, Sigma)
 
-        agg.aggregate.Store(newUSigma)
+        agg.aggregate.Store(&newUSigma)
+        log.Debug("PERFORMED AGGREGATION")
     }
 }
 

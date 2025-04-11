@@ -4,8 +4,8 @@ metadata:
   name: pi-2000
   namespace: basic-sched
 spec:
-  completions: 10
-  parallelism: 10
+  completions: 50
+  parallelism: 50
   template:
     spec:
       schedulerName: pronto

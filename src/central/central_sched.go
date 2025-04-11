@@ -55,6 +55,10 @@ func New() *CentralScheduler {
     ctl.findNodes()
     ctl.nodeSignals = make([]atomic.Uint64, len(ctl.nodeMap))
 
+    for node := range(len(ctl.nodeMap)) {
+        ctl.nodeSignals[node].Store(math.Float64bits(1))
+    }
+
     ctl.ctlStartPlacementServer()
 
 	return ctl
@@ -74,6 +78,11 @@ func (ctl *CentralScheduler) findNode() string {
             name = node
         }
     }
+
+    log.WithFields(log.Fields{
+        "NODE": name,
+        "JOB SIGNAL": minSignal,
+    }).Debug("FOUND NODE")
 
     return name
 }

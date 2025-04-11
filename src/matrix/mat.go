@@ -2,6 +2,7 @@ package matrix
 
 import (
 	"fmt"
+
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -14,25 +15,24 @@ Function Structure
 */
 
 
-func SVDR(B mat.Matrix, r int) (*mat.Dense, *mat.DiagDense) {
-    br, bc := B.Dims()
+func SVDR(b mat.Matrix, r int) (*mat.Dense, *mat.DiagDense) {
+    br, bc := b.Dims()
     if min(br, bc) < r {
 		panic(fmt.Errorf("rank r must be smaller than the dimensions of matrix"))
 	}
 
     var svd mat.SVD
-    svd.Factorize(B, mat.SVDThinU)
+    svd.Factorize(b, mat.SVDThinU)
 
-    var FullU, U *mat.Dense
-    svd.UTo(FullU)
-    m, _ := FullU.Dims()
-    U.Copy(FullU.Slice(0, m, 0, r))
+    var fullU, u mat.Dense
+    svd.UTo(&fullU)
+    m, _ := fullU.Dims()
+    u.CloneFrom(fullU.Slice(0, m, 0, r))
 
-    var Sigma *mat.DiagDense
-    sigma := svd.Values(nil)
-    Sigma = mat.NewDiagDense(r, sigma[:r])
+    sData := svd.Values(nil)
+    sigma := mat.NewDiagDense(r, sData[:r])
 
-    return U, Sigma
+    return &u, sigma
 }
 
 /* Concatenates two matrices A and B */
@@ -74,15 +74,15 @@ func Merge(U1 mat.Matrix, Sigma1 mat.Matrix, U2 mat.Matrix, Sigma2 mat.Matrix, r
 
     U'' = [U_1, Q]U'
     */
-    var temp1 *mat.Dense
+    var temp1 mat.Dense
     temp1.Mul(U1, Sigma1)
-    temp1.Scale(forget, temp1)
+    temp1.Scale(forget, &temp1)
 
-    var temp2 *mat.Dense
+    var temp2 mat.Dense
     temp2.Mul(U2, Sigma2)
-    temp2.Scale(enhance, temp2)
+    temp2.Scale(enhance, &temp2)
 
-    concat := Concatenate(temp1, temp2)
+    concat := Concatenate(&temp1, &temp2)
 
     return SVDR(concat, r)
 }
@@ -124,8 +124,6 @@ func Rank(inU *mat.Dense, inSigma *mat.DiagDense, r int, alpha, beta float64) (*
         e = canonical(r+1)
         [U,e], Sigma[:r+1]
     */
-    var outU *mat.Dense
-    var outSigma *mat.DiagDense
 
     ur, uc := inU.Dims()
     _, sc := inU.Dims()
@@ -145,15 +143,17 @@ func Rank(inU *mat.Dense, inSigma *mat.DiagDense, r int, alpha, beta float64) (*
         /* TODO: Complete with understanding from Andreas */
         rank = r+1
     }
-    outU.Copy(inU.Slice(0, ur, 0, rank))
+
+    var outU mat.Dense
+    outU.CloneFrom(inU.Slice(0, ur, 0, rank))
 
     outDiag := make([]float64, rank)
     copy(outDiag, inSigma.RawBand().Data[:rank])
-    outSigma = mat.NewDiagDense(rank, outDiag)
+    outSigma := mat.NewDiagDense(rank, outDiag)
 
 
 
-    return outU, outSigma
+    return &outU, outSigma
 }
 
 func AggMerge(USigma1 *mat.Dense, USigma2 *mat.Dense, r int) (*mat.Dense, *mat.DiagDense) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 	"gonum.org/v1/gonum/mat"
@@ -20,7 +21,7 @@ import (
 )
 
 const (
-    TR = 1
+    TR = 0.5
 )
 
 type RemoteScheduler struct {
@@ -89,12 +90,13 @@ func New() *RemoteScheduler {
     }
 
     /* Run metrics collection */
-    rmt.mc = metrics.New()
-    go rmt.mc.Collect()
+    var sender <-chan *mat.Dense
+    rmt.mc, sender = metrics.New()
+    log.Debug("RMT: INITIALISE METRIC COLLECTOR")
 
     /* Run fpca */
-    rmt.fp = fpca.New()
-    go rmt.fp.RunLocalUpdates()
+    rmt.fp = fpca.New(sender)
+    log.Debug("RMT: INITIALISE FPCA")
 
 
     /* Set the remote scheduler variables */
@@ -103,6 +105,7 @@ func New() *RemoteScheduler {
     rmt.SetOnNode()
     rmt.AsClient()
 
+    log.Debug("RMT: FINISHED INITIALISATION")
 	return rmt
 }
 
@@ -121,13 +124,19 @@ func (rmt *RemoteScheduler) JobSignal() float64 {
     u := uSigmaPair.U
     sigma := uSigmaPair.Sigma
 
-    var temp, p, wP *mat.Dense
+    log.WithFields(log.Fields{
+        "Y" : *y,
+        "U" : *u,
+        "SIGMA" : *sigma,
+    }).Debug("RMT: CALCULATING JOB SIGNAL")
+
+    var temp, p, wP mat.Dense
     temp.Mul(y.T(), u)
-    p.Apply(absFunc, temp)
+    p.Apply(absFunc, &temp)
 
-    wP.Mul(sigma, p)
+    wP.Mul(&p, sigma)
 
-    return mat.Sum(wP)
+    return mat.Sum(&wP)
 }
 
 /* Core Scheduling loop */
@@ -138,26 +147,16 @@ TODO: Change to periodic as this will reduce delay, scheduler can use the
 latest value received
 */
 func (rmt *RemoteScheduler) Schedule() {
-
-    /* Creates a watch interface for all pods that use this scheduler */
-	watch, _ := rmt.clientset.CoreV1().Pods("").Watch(context.TODO(), metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("spec.schedulerName=%s,spec.nodeName=", "pronto"),
-	})
-
-    /* Loops over all new pod events we detect */
-	for event := range watch.ResultChan() {
-        /* Ignore events where pods have been added */
-		if event.Type != "ADDED" {
-			continue
-		}
-
-		p := event.Object.(*v1.Pod)
-		log.WithFields(log.Fields{
-			"namespace": p.Namespace,
-			"pod":       p.Name,
-		}).Debug("BEGIN POD REQUEST")
+    ticker := time.NewTicker(time.Second)
+    defer ticker.Stop()
+    for {
+        <-ticker.C
+		log.Debug("RMT: BEGIN POD REQUEST")
 
         signal := rmt.JobSignal()
+        log.WithFields(log.Fields{
+            "R" : signal,
+        }).Debug("RMT: CALCULATED JOB SIGNAL")
         if signal < rmt.tr {
             rmt.RequestPod(signal)
         }

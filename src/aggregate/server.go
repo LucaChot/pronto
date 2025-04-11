@@ -41,7 +41,7 @@ Read the pointer to the struct containing both the U and Sigma
 Uses atomic.Pointer[T] to ensure atomicity
 Research into Golang's memory model
 */
-func (agg *Aggregator) RequestGlobalMerge(ctx context.Context, in *pb.DenseMatrix) (*pb.DenseMatrix, error) {
+func (agg *Aggregator) RequestAggMerge(ctx context.Context, in *pb.DenseMatrix) (*pb.DenseMatrix, error) {
     log.Debug("RECEIVED AGGREGATE REQUEST")
     inUSigma := mat.NewDense(int(in.Rows), int(in.Cols), in.Data)
     agg.matrices<- inUSigma
