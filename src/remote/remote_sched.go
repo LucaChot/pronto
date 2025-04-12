@@ -3,13 +3,16 @@ package remote
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
-
+	"time"
 
 	log "github.com/sirupsen/logrus"
+	"gonum.org/v1/gonum/mat"
 
+	"github.com/LucaChot/pronto/src/fpca"
 	pb "github.com/LucaChot/pronto/src/message"
-    metrics "github.com/LucaChot/pronto/src/metrics"
+	"github.com/LucaChot/pronto/src/metrics"
 
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -17,10 +20,18 @@ import (
 	"k8s.io/client-go/rest"
 )
 
+const (
+    TR = 0.5
+)
+
 type RemoteScheduler struct {
     hostname string
     onNode *v1.Node
-    mc metrics.MetricCollector
+
+    mc *metrics.MetricsCollector
+    fp *fpca.FPCAAgent
+
+    tr float64
 
     clientset   *kubernetes.Clientset
     ctlPlStub  pb.PodPlacementClient
@@ -74,42 +85,81 @@ func (rmt *RemoteScheduler) SetOnNode() {
 func New() *RemoteScheduler {
 
     /* Initialise scheduler values */
-    rmt := &RemoteScheduler{}
+    rmt := &RemoteScheduler{
+        tr: TR,
+    }
+
+    /* Run metrics collection */
+    var sender <-chan *mat.Dense
+    rmt.mc, sender = metrics.New()
+    log.Debug("RMT: INITIALISE METRIC COLLECTOR")
+
+    /* Run fpca */
+    rmt.fp = fpca.New(sender)
+    log.Debug("RMT: INITIALISE FPCA")
+
 
     /* Set the remote scheduler variables */
     rmt.SetClientset()
     rmt.SetHostname()
     rmt.SetOnNode()
-
-    rmt.mc = metrics.New()
-
     rmt.AsClient()
 
+    log.Debug("RMT: FINISHED INITIALISATION")
 	return rmt
 }
 
+func absFunc(i, j int, v float64) (float64) {
+    return math.Abs(v)
+}
+
+
+func (rmt *RemoteScheduler) JobSignal() float64 {
+    /* TODO: How to ensure that the B, U and Sigma we load are for the same
+    * timestep. Will have to use an atomic pointer that points to be U and
+    * Sigma */
+    y := rmt.mc.Y.Load()
+
+    uSigmaPair := rmt.fp.USIgma.Load()
+    u := uSigmaPair.U
+    sigma := uSigmaPair.Sigma
+
+    log.WithFields(log.Fields{
+        "Y" : *y,
+        "U" : *u,
+        "SIGMA" : *sigma,
+    }).Debug("RMT: CALCULATING JOB SIGNAL")
+
+    var temp, p, wP mat.Dense
+    temp.Mul(y.T(), u)
+    p.Apply(absFunc, &temp)
+
+    wP.Mul(&p, sigma)
+
+    return mat.Sum(&wP)
+}
+
 /* Core Scheduling loop */
+/*
+TODO: Determine whether I calculate this on pod event or whether I send signal
+periodically
+TODO: Change to periodic as this will reduce delay, scheduler can use the
+latest value received
+*/
 func (rmt *RemoteScheduler) Schedule() {
+    ticker := time.NewTicker(time.Second)
+    defer ticker.Stop()
+    for {
+        <-ticker.C
+		log.Debug("RMT: BEGIN POD REQUEST")
 
-    /* Creates a watch interface for all pods that use this scheduler */
-	watch, _ := rmt.clientset.CoreV1().Pods("").Watch(context.TODO(), metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("spec.schedulerName=%s,spec.nodeName=", "central-sched"),
-	})
-
-    /* Loops over all new pod events we detect */
-	for event := range watch.ResultChan() {
-        /* Ignore events where pods have been added */
-		if event.Type != "ADDED" {
-			continue
-		}
-
-		p := event.Object.(*v1.Pod)
-		log.WithFields(log.Fields{
-			"namespace": p.Namespace,
-			"pod":       p.Name,
-		}).Debug("BEGIN POD REQUEST")
-
-        rmt.RequestPod(p)
+        signal := rmt.JobSignal()
+        log.WithFields(log.Fields{
+            "R" : signal,
+        }).Debug("RMT: CALCULATED JOB SIGNAL")
+        if signal < rmt.tr {
+            rmt.RequestPod(signal)
+        }
 	}
 }
 
