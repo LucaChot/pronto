@@ -2,11 +2,12 @@ package central
 
 import (
 	"context"
+	"math"
 	"net"
 
+	pb "github.com/LucaChot/pronto/src/message"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
-	pb "github.com/LucaChot/pronto/src/message"
 )
 
 
@@ -37,20 +38,13 @@ func (ctl *CentralScheduler) ctlStartPlacementServer() {
 
 func (ctl *CentralScheduler) RequestPod(ctx context.Context, in *pb.PodRequest) (*pb.EmptyReply, error) {
     log.WithFields(log.Fields{
-        "POD":      in.Pod,
+        "SIGNAL":      in.Signal,
         "NODE":     in.Node,
-    }).Debug("RECEIVED POD REQUEST")
-    if _, err := ctl.Bins[in.Pod]; err {
-        return &pb.EmptyReply{}, nil
-    }
-    if ctl.mu.TryLock() {
-        defer ctl.mu.Unlock()
+    }).Debug("RECEIVED JOB SIGNAL")
 
-        if _, err := ctl.Bins[in.Pod]; err {
-            return &pb.EmptyReply{}, nil
-        }
-        ctl.Bins[in.Pod] = in.Node
-    }
+    index := ctl.nodeMap[in.Node]
+    ctl.nodeSignals[index].Store(math.Float64bits(in.Signal))
+
     return &pb.EmptyReply{}, nil
 }
 

@@ -3,25 +3,44 @@ package central
 import (
 	"context"
 	"fmt"
+	"math"
+	"sync"
+	"sync/atomic"
 	"time"
-    "sync"
 
 	log "github.com/sirupsen/logrus"
 
+	pb "github.com/LucaChot/pronto/src/message"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/flowcontrol"
-	pb "github.com/LucaChot/pronto/src/message"
 )
 
 type CentralScheduler struct {
     mu          sync.Mutex
     Name        string
     clientset   *kubernetes.Clientset
+
+    nodeMap     map[string]int
+    nodeSignals []atomic.Uint64
+
     Bins        map[string]string
     pb.UnimplementedPodPlacementServer
+}
+
+func (ctl *CentralScheduler) SetClientset() {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		log.WithFields(log.Fields{
+			"ERROR": err,
+		}).Error("CONFIG ERROR")
+	}
+	config.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(80, 100)
+
+	clientset, err := kubernetes.NewForConfig(config)
+	ctl.clientset = clientset
 }
 
 /* Creates a new CentralScheduler */
@@ -29,26 +48,16 @@ func New() *CentralScheduler {
 
     /* Initialise scheduler values */
 	ctl := &CentralScheduler{
-		Name: "central-sched",
-        Bins: make(map[string]string),
+		Name: "pronto",
     }
 
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Error("error getting config")
-	}
-	config.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(80, 100)
+    ctl.SetClientset()
+    ctl.findNodes()
+    ctl.nodeSignals = make([]atomic.Uint64, len(ctl.nodeMap))
 
-	clientset, err := kubernetes.NewForConfig(config)
-	ctl.clientset = clientset
-
-	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Error("error getting config")
-	}
+    for node := range(len(ctl.nodeMap)) {
+        ctl.nodeSignals[node].Store(math.Float64bits(1))
+    }
 
     ctl.ctlStartPlacementServer()
 
@@ -57,15 +66,25 @@ func New() *CentralScheduler {
 
 
 /* Returns the node of the first remote scheduler to respond to new pod */
-func (ctl *CentralScheduler) findNode(podName string) string {
-    /* Busy wait until a scheduler has responded */
-    for {
-        if _, ok := ctl.Bins[podName]; ok {
-            break
+func (ctl *CentralScheduler) findNode() string {
+    var name string
+    var minSignal float64
+    minSignal = 1
+
+    for node, index := range ctl.nodeMap {
+        signal := math.Float64frombits(ctl.nodeSignals[index].Load())
+        if signal < minSignal {
+            minSignal = signal
+            name = node
         }
     }
-    /* Fetch the node to place the pod */
-    return ctl.Bins[podName]
+
+    log.WithFields(log.Fields{
+        "NODE": name,
+        "JOB SIGNAL": minSignal,
+    }).Debug("FOUND NODE")
+
+    return name
 }
 
 /* Core Scheduling loop */
@@ -93,7 +112,12 @@ func (ctl *CentralScheduler) Schedule() {
 
 
         /* Find a node to place the pod */
-        node := ctl.findNode(p.Name)
+        node := ctl.findNode()
+        if node == "" {
+            log.Debug("FAILED TO FIND SUITABLE NODE")
+            continue
+        }
+
         ctl.placePodToNode(p, node)
 
         /* Collect information for event */
