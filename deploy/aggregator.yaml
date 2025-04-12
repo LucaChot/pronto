@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggregator
+  namespace: basic-sched
+  labels:
+    component: aggregator
+    tier: control-plane
+    name: aggregator
+spec:
+  selector:
+    matchLabels:
+      component: aggregator
+      tier: control-plane
+      name: aggregator
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        component: aggregator
+        tier: control-plane
+        name: aggregator
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      tolerations:
+      - key: "node-role.kubernetes.io/master"
+        operator: "Exists"
+        effect: NoSchedule
+      - key: "node-role.kubernetes.io/control-plane"
+        operator: "Exists"
+        effect: NoSchedule
+      containers:
+      - command:
+        - ./agg
+        name: aggregator
+        resources:
+          requests:
+            cpu: 100m
+        image: lucachot/aggregator:latest
+        imagePullPolicy: Always
+      restartPolicy: Always
