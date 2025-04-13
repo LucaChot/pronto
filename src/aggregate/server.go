@@ -25,7 +25,7 @@ func (agg *Aggregator) startAggregateServer() {
 
 	log.WithFields(log.Fields{
 		"ADDRESS": lis.Addr(),
-	}).Debug("STARTED AGGREGATE SERVER")
+    }).Debug("SERVER: STARTED AGGREGATE SERVER")
 
 	go func() {
 		if err := s.Serve(lis); err != nil {
@@ -42,11 +42,17 @@ Uses atomic.Pointer[T] to ensure atomicity
 Research into Golang's memory model
 */
 func (agg *Aggregator) RequestAggMerge(ctx context.Context, in *pb.DenseMatrix) (*pb.DenseMatrix, error) {
-    log.Debug("RECEIVED AGGREGATE REQUEST")
     inUSigma := mat.NewDense(int(in.Rows), int(in.Cols), in.Data)
     agg.matrices<- inUSigma
 
     aggUSigma := agg.aggregate.Load()
+
+    if aggUSigma == nil {
+        log.Debug("SERVER: NO AGGREGATE RETURNED INPUT")
+        return in, nil
+    }
+
+    log.Debug("SERVER: RETURNED AGGREGATE")
 
     rows, cols := aggUSigma.Dims()
     return &pb.DenseMatrix{

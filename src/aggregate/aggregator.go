@@ -36,7 +36,6 @@ import (
 
 const (
     MAXWAITING = 20
-    D = 2
     R = 2
 )
 
@@ -51,8 +50,6 @@ func New() (*Aggregator) {
         matrices: make(chan *mat.Dense, MAXWAITING),
     }
 
-    agg.aggregate.Store(mat.NewDense(D, R, nil))
-
     agg.startAggregateServer()
 
     return &agg
@@ -64,20 +61,25 @@ less than or greater than r?
 I.e. Check if there may be a mismatch in the rank
 */
 func (agg *Aggregator) Aggregate()  {
+    firstUSigma := <- agg.matrices
+    agg.aggregate.Store(firstUSigma)
+    log.Debug("AGG: RECEIVED FIRST MATRIX")
     for {
         inUSigma := <- agg.matrices
-        _, r := inUSigma.Dims()
 
         /* Uses sync/atomic pointer */
         currUSigma := agg.aggregate.Load()
 
-        U, Sigma := mt.AggMerge(currUSigma, inUSigma, r)
+        U, Sigma := mt.AggMerge(currUSigma, inUSigma, R)
 
         var newUSigma mat.Dense
         newUSigma.Mul(U, Sigma)
 
         agg.aggregate.Store(&newUSigma)
-        log.Debug("PERFORMED AGGREGATION")
+        log.WithFields(log.Fields{
+            "U": U,
+            "S": Sigma,
+        }).Debug("AGG: PERFORMED AGGREGATION")
     }
 }
 
