@@ -12,7 +12,20 @@ import (
 const (
     d = 2
     r = 2
+    b = 10
 )
+
+var identity *mat.DiagDense
+
+func init(){
+    ones := make([]float64, b)
+    for i := range ones {
+        ones[i] = 1
+    }
+    identity = mat.NewDiagDense(b, ones)
+}
+
+
 
 type USigmaPair struct {
     U *mat.Dense
@@ -47,8 +60,8 @@ func New(ch <-chan *mat.Dense) *FPCAAgent {
         inB: ch,
         adaptive: false,
         r: r,
-        enhance: 1.1,
-        forget: 0.9,
+        enhance: 1,
+        forget: 1,
         epsilon: 0,
     }
 
@@ -116,8 +129,6 @@ func (fp *FPCAAgent) FPCAEdge() {
     if fp.localU == nil && fp.localSigma == nil {
         fp.localU, fp.localSigma = mt.SVDR(fp.b, fp.r)
     } else {
-        _, bc := fp.b.Dims()
-        identity := mat.NewDiagDense(bc, nil)
         fp.localU, fp.localSigma = mt.Merge(fp.localU, fp.localSigma, fp.b, identity, fp.r, fp.enhance, fp.forget)
     }
 
