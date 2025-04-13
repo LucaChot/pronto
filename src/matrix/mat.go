@@ -74,13 +74,14 @@ func Merge(U1 mat.Matrix, Sigma1 mat.Matrix, U2 mat.Matrix, Sigma2 mat.Matrix, r
 
     U'' = [U_1, Q]U'
     */
+    total := forget + enhance
     var temp1 mat.Dense
     temp1.Mul(U1, Sigma1)
-    temp1.Scale(forget, &temp1)
+    temp1.Scale(forget / total, &temp1)
 
     var temp2 mat.Dense
     temp2.Mul(U2, Sigma2)
-    temp2.Scale(enhance, &temp2)
+    temp2.Scale(enhance / total, &temp2)
 
     concat := Concatenate(&temp1, &temp2)
 
@@ -181,6 +182,7 @@ func AggMerge(USigma1 *mat.Dense, USigma2 *mat.Dense, r int) (*mat.Dense, *mat.D
     qr.RTo(R)
     */
     concat := Concatenate(USigma1, USigma2)
+    concat.Scale(0.5, concat)
 
     return SVDR(concat, r)
 
