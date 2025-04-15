@@ -86,10 +86,7 @@ func (fp *FPCAAgent) RunLocalUpdates() {
 		fp.FPCAEdge()
 
         if !mat.EqualApprox(fp.u, fp.lastU, fp.epsilon) {
-            var uSigma mat.Dense
-            uSigma.Mul(fp.u, fp.sigma)
-            aggUSigma := fp.RequestAgg(&uSigma)
-            fp.u, fp.sigma = mt.AggMerge(aggUSigma, &uSigma, fp.r)
+            fp.AggMerge()
         }
 
         fp.USIgma.Store(&USigmaPair{
@@ -100,6 +97,40 @@ func (fp *FPCAAgent) RunLocalUpdates() {
 
         fp.lastU = fp.u
     }
+}
+
+// TODO: Look into whether I can move the key AGG retrieval out of this
+// function so that I can retrieve from agg before B is calculated
+func (fp *FPCAAgent) AggMerge() {
+    var uSigma mat.Dense
+    uSigma.Mul(fp.u, fp.sigma)
+    uSigma.Scale(1 / fp.sigma.Trace(), &uSigma)
+
+    aggU := fp.SendAggRequest(&uSigma)
+    if aggU == nil {
+        return
+    }
+
+    var uTB mat.Dense
+    uTB.Mul(aggU.T(), fp.b)
+    rUTB, cUTB := uTB.Dims()
+
+    aggSigmaData := make([]float64, rUTB)
+    for i := range rUTB {
+        row := mat.Row(nil, i, &uTB)
+
+        v := mat.NewVecDense(cUTB, row)
+
+        dist := mat.Norm(v, 2)
+        aggSigmaData[i] = dist * dist
+    }
+
+    aggSigma := mat.NewDiagDense(rUTB, aggSigmaData)
+    var aggUSigma mat.Dense
+    aggUSigma.Mul(aggU, aggSigma)
+
+    fp.u, fp.sigma = mt.AggMerge(&aggUSigma, &uSigma, fp.r)
+
 }
 
 /*
@@ -118,10 +149,7 @@ func (fp *FPCAAgent) InitFPCAEdge() {
     fp.u = fp.localU
     fp.sigma = fp.localSigma
 
-    var uSigma mat.Dense
-    uSigma.Mul(fp.u, fp.sigma)
-    aggUSigma := fp.RequestAgg(&uSigma)
-    fp.u, fp.sigma = mt.AggMerge(aggUSigma, &uSigma, fp.r)
+    fp.AggMerge()
 
     fp.USIgma.Store(&USigmaPair{
         U: fp.u,

@@ -47,15 +47,14 @@ func (fp *FPCAAgent) connectToAgg(aggAddr net.IP) {
 
 }
 
-func (fp *FPCAAgent) RequestAgg(m *mat.Dense) (*mat.Dense) {
+func (fp *FPCAAgent) SendAggRequest(inM *mat.Dense) (*mat.Dense) {
     log.Debug("FPCA: REQUESTING AGGREGATION")
     ctx := context.Background()
 
-    rows, cols := m.Dims()
-    uSigma, err := fp.aggStub.RequestAggMerge(ctx, &pb.DenseMatrix{
-        Rows: int64(rows),
+    rows, cols := inM.Dims()
+    outM, err := fp.aggStub.RequestAggMerge(ctx, &pb.DenseMatrix{ Rows: int64(rows),
         Cols: int64(cols),
-        Data: m.RawMatrix().Data,
+        Data: inM.RawMatrix().Data,
     })
 
     if err != nil {
@@ -66,6 +65,10 @@ func (fp *FPCAAgent) RequestAgg(m *mat.Dense) (*mat.Dense) {
 
     log.Debug("FPCA: COMPLETED AGGREGATION")
 
-    return mat.NewDense(int(uSigma.Rows), int(uSigma.Cols), uSigma.Data)
+    if outM == nil {
+        return nil
+    }
+
+    return mat.NewDense(int(outM.Rows), int(outM.Cols), outM.Data)
 }
 

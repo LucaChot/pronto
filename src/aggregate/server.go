@@ -45,20 +45,20 @@ func (agg *Aggregator) RequestAggMerge(ctx context.Context, in *pb.DenseMatrix) 
     inUSigma := mat.NewDense(int(in.Rows), int(in.Cols), in.Data)
     agg.matrices<- inUSigma
 
-    aggUSigma := agg.aggregate.Load()
+    aggU := agg.aggU.Load()
 
-    if aggUSigma == nil {
+    if aggU == nil {
         log.Debug("SERVER: NO AGGREGATE RETURNED INPUT")
-        return in, nil
+        return nil, nil
     }
 
     log.Debug("SERVER: RETURNED AGGREGATE")
 
-    rows, cols := aggUSigma.Dims()
+    rows, cols := aggU.Dims()
     return &pb.DenseMatrix{
         Rows: int64(rows),
         Cols: int64(cols),
-        Data: aggUSigma.RawMatrix().Data,
+        Data: aggU.RawMatrix().Data,
     }, nil
 }
 

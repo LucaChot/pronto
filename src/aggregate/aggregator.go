@@ -41,7 +41,8 @@ const (
 
 type Aggregator struct {
     matrices chan *mat.Dense
-    aggregate atomic.Pointer[mat.Dense]
+    aggU atomic.Pointer[mat.Dense]
+    aggUSigma *mat.Dense
     pb.UnimplementedAggregateMergeServer
 }
 
@@ -61,21 +62,18 @@ less than or greater than r?
 I.e. Check if there may be a mismatch in the rank
 */
 func (agg *Aggregator) Aggregate()  {
-    firstUSigma := <- agg.matrices
-    agg.aggregate.Store(firstUSigma)
+    agg.aggUSigma = <- agg.matrices
+    u, _ := mt.SVDR(agg.aggUSigma, R)
+    agg.aggU.Store(u)
     log.Debug("AGG: RECEIVED FIRST MATRIX")
     for {
         inUSigma := <- agg.matrices
 
-        /* Uses sync/atomic pointer */
-        currUSigma := agg.aggregate.Load()
+        U, Sigma := mt.AggMerge(agg.aggUSigma, inUSigma, R)
+        agg.aggU.Store(U)
 
-        U, Sigma := mt.AggMerge(currUSigma, inUSigma, R)
+        agg.aggUSigma.Mul(U, Sigma)
 
-        var newUSigma mat.Dense
-        newUSigma.Mul(U, Sigma)
-
-        agg.aggregate.Store(&newUSigma)
         log.WithFields(log.Fields{
             "U": U,
             "S": Sigma,
