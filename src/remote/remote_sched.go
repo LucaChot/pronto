@@ -115,12 +115,13 @@ func absFunc(i, j int, v float64) (float64) {
 
 
 func (rmt *RemoteScheduler) JobSignal() float64 {
-    /* TODO: How to ensure that the B, U and Sigma we load are for the same
-    * timestep. Will have to use an atomic pointer that points to be U and
-    * Sigma */
     y := rmt.mc.Y.Load()
 
     uSigmaPair := rmt.fp.USIgma.Load()
+    if uSigmaPair == nil {
+        log.Debug("RMT: WAITING FOR U AND SIGMA")
+        return rmt.tr
+    }
     u := uSigmaPair.U
     sigma := uSigmaPair.Sigma
 
@@ -140,12 +141,6 @@ func (rmt *RemoteScheduler) JobSignal() float64 {
 }
 
 /* Core Scheduling loop */
-/*
-TODO: Determine whether I calculate this on pod event or whether I send signal
-periodically
-TODO: Change to periodic as this will reduce delay, scheduler can use the
-latest value received
-*/
 func (rmt *RemoteScheduler) Schedule() {
     ticker := time.NewTicker(time.Second)
     defer ticker.Stop()

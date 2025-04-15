@@ -65,15 +65,6 @@ func New(ch <-chan *mat.Dense) *FPCAAgent {
         epsilon: 0,
     }
 
-    fp.u = mat.NewDense(d, r, nil)
-    fp.sigma = mat.NewDiagDense(r, nil)
-    fp.lastU = fp.u
-
-    fp.USIgma.Store(&USigmaPair{
-        U: fp.u,
-        Sigma: fp.sigma,
-    })
-
     fp.AsClient()
 
 	go fp.RunLocalUpdates()
@@ -82,6 +73,11 @@ func New(ch <-chan *mat.Dense) *FPCAAgent {
 }
 
 func (fp *FPCAAgent) RunLocalUpdates() {
+    // Initial B matrix
+    log.Debug("FPCA: WAITING ON B")
+    fp.b = <-fp.inB
+    fp.InitFPCAEdge()
+
     for {
         log.Debug("FPCA: WAITING ON B")
         fp.b = <-fp.inB
@@ -107,17 +103,44 @@ func (fp *FPCAAgent) RunLocalUpdates() {
 }
 
 /*
-TODO: Ask andreas about the pseudocode of the paper, in the rank function, it assumes
-that the sigma is of size r x r, so what does Sigma_[r+1] do?
+TODO: Current system must wait for b samples before it can set it u and sigma.
+Look into fetching the u and sigma from the aggregator on setup. May need a new
+grpc or a modify existing one with a flag
+*/
+func (fp *FPCAAgent) InitFPCAEdge() {
+    /*
+    * Update embedding estimates *
+    if mc.localU, mc.localSigma = 0,0:
+        mc.LocalU, mc.LocalSigma := SVD(B,r)
+    */
+    log.Debug("FPCA: RECIEVED B AND INITIATING U AND SIGMA")
+    fp.localU, fp.localSigma = mt.SVDR(fp.b, fp.r)
+    fp.u = fp.localU
+    fp.sigma = fp.localSigma
+
+    var uSigma mat.Dense
+    uSigma.Mul(fp.u, fp.sigma)
+    aggUSigma := fp.RequestAgg(&uSigma)
+    fp.u, fp.sigma = mt.AggMerge(aggUSigma, &uSigma, fp.r)
+
+    fp.USIgma.Store(&USigmaPair{
+        U: fp.u,
+        Sigma: fp.sigma,
+    })
+
+    fp.lastU = fp.u
+    log.Debug("FPCA: FINISHED INITIATING U AND SIGMA")
+}
+
+/*
+TODO: Ask andreas about the pseudocode of the paper, in the rank function, it
+assumes that the sigma is of size r x r, so what does Sigma_[r+1] do?
 TODO: Ask which version of Merge should I implement
 */
 func (fp *FPCAAgent) FPCAEdge() {
     /*
     * Update embedding estimates *
-    if mc.localU, mc.localSigma = 0,0:
-        mc.LocalU, mc.LocalSigma := SVD(B,r)
-    else:
-        mc.LocalU, mc.LocalSigma := Merge(mc.LocalU, mc.localSigma, B, I, r)
+    mc.LocalU, mc.LocalSigma := Merge(mc.LocalU, mc.localSigma, B, I, r)
 
     * Merge with previous estimate *
     mc.GlobalU, mc.GlobalSigma := Merge(mc.LocalU, mc.localSigma, mc.GlobalU, mc.GlobalSigma, r)
@@ -126,11 +149,7 @@ func (fp *FPCAAgent) FPCAEdge() {
     mc.GlobalU, mc.GlobalSigma := Rank(mc.GlobalU, mc.GlobalSigma, alpha, beta, r)
     */
 
-    if fp.localU == nil && fp.localSigma == nil {
-        fp.localU, fp.localSigma = mt.SVDR(fp.b, fp.r)
-    } else {
-        fp.localU, fp.localSigma = mt.Merge(fp.localU, fp.localSigma, fp.b, identity, fp.r, fp.enhance, fp.forget)
-    }
+    fp.localU, fp.localSigma = mt.Merge(fp.localU, fp.localSigma, fp.b, identity, fp.r, fp.forget, fp.enhance)
 
     var uSigma, localUSigma mat.Dense
     uSigma.Mul(fp.u, fp.sigma)
