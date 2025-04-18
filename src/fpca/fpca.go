@@ -102,11 +102,11 @@ func (fp *FPCAAgent) RunLocalUpdates() {
 // TODO: Look into whether I can move the key AGG retrieval out of this
 // function so that I can retrieve from agg before B is calculated
 func (fp *FPCAAgent) AggMerge() {
-    var uSigma mat.Dense
+    var uSigma, scaledUSigma mat.Dense
     uSigma.Mul(fp.u, fp.sigma)
-    uSigma.Scale(1 / fp.sigma.Trace(), &uSigma)
+    scaledUSigma.Scale(1 / fp.sigma.Trace(), &uSigma)
 
-    aggU := fp.SendAggRequest(&uSigma)
+    aggU := fp.SendAggRequest(&scaledUSigma)
     if aggU == nil {
         return
     }
@@ -122,7 +122,7 @@ func (fp *FPCAAgent) AggMerge() {
         v := mat.NewVecDense(cUTB, row)
 
         dist := mat.Norm(v, 2)
-        aggSigmaData[i] = dist * dist
+        aggSigmaData[i] = dist
     }
 
     aggSigma := mat.NewDiagDense(rUTB, aggSigmaData)
