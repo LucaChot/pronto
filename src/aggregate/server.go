@@ -8,6 +8,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"gonum.org/v1/gonum/mat"
 	"google.golang.org/grpc"
+    "google.golang.org/grpc/status"
+    "google.golang.org/grpc/codes"
 )
 
 
@@ -49,7 +51,7 @@ func (agg *Aggregator) RequestAggMerge(ctx context.Context, in *pb.DenseMatrix) 
 
     if aggU == nil {
         log.Debug("SERVER: NO AGGREGATE RETURNED INPUT")
-        return nil, nil
+        return nil, status.Errorf(codes.NotFound, "NO AGGREGATE TO RETURN")
     }
 
     log.Debug("SERVER: RETURNED AGGREGATE")

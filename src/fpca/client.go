@@ -10,6 +10,8 @@ import (
 	"gonum.org/v1/gonum/mat"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+    "google.golang.org/grpc/status"
+    "google.golang.org/grpc/codes"
 )
 
 func (fp *FPCAAgent) AsClient() {
@@ -47,6 +49,10 @@ func (fp *FPCAAgent) connectToAgg(aggAddr net.IP) {
 
 }
 
+/*
+TODO: Add handler to query connection to  aggregate server in the event of
+connection failing
+*/
 func (fp *FPCAAgent) SendAggRequest(inM *mat.Dense) (*mat.Dense) {
     log.Debug("FPCA: REQUESTING AGGREGATION")
     ctx := context.Background()
@@ -58,16 +64,23 @@ func (fp *FPCAAgent) SendAggRequest(inM *mat.Dense) (*mat.Dense) {
     })
 
     if err != nil {
-		log.WithFields(log.Fields{
-			"ERROR": err,
-		}).Fatal("FAILED AGGREGATION")
+        st, ok := status.FromError(err)
+        if !ok {
+            log.WithFields(log.Fields{
+                "ERROR": err,
+            }).Fatal("FPCA: FAILED AGGREGATION")
+        }
+
+        switch st.Code() {
+            case codes.NotFound:
+                log.Debug("FPCA: DID NOT RECEIVE AGGREGATE")
+            case codes.Unavailable:
+                log.Debug("FPCA: AGGREGATE SERVER UNAVAILABLE")
+        }
+        return nil
 	}
 
     log.Debug("FPCA: COMPLETED AGGREGATION")
-
-    if outM == nil {
-        return nil
-    }
 
     return mat.NewDense(int(outM.Rows), int(outM.Cols), outM.Data)
 }
