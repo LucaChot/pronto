@@ -12,7 +12,7 @@ import (
 
 
 
-func (ctl *CentralScheduler) ctlStartPlacementServer() {
+func (ctl *CentralScheduler) startPlacementServer() {
     lis, err := net.Listen("tcp", ":50051")
 	if err != nil {
 		log.WithFields(log.Fields{

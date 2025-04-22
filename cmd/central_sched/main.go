@@ -1,9 +1,17 @@
 package main
 
 import (
+	"context"
 	"flag"
+	"fmt"
+	"io"
+	"os/signal"
+	"syscall"
 
 	"github.com/LucaChot/pronto/src/central"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/flowcontrol"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -17,9 +25,36 @@ func init() {
 	})
 }
 
+func GetInClusterClientset() (*kubernetes.Clientset, error) {
+	config, err := rest.InClusterConfig()
+	if err != nil {
+        return nil, fmt.Errorf("failed to get in-cluster config: %w", err)
+	}
+	config.RateLimiter = flowcontrol.NewTokenBucketRateLimiter(80, 100)
+
+	return kubernetes.NewForConfig(config)
+}
+
 
 func main() {
+    ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
-	ctl := central.New()
-    ctl.Schedule()
+    clientset, err := GetInClusterClientset()
+	if err != nil {
+		log.Fatalf("Failed to create k8s client: %v", err)
+	}
+
+    ctl := central.New("pronto", central.WithClientset(clientset))
+
+    if err := ctl.Init(); err != nil {
+		log.Fatal(err)
+	}
+
+	ctl.Start()
+
+	if err := ctl.RunScheduler(
+        ctx); err != nil {
+		log.Fatal(err)
+	}
 }

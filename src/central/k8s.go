@@ -8,18 +8,28 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func (ctl *CentralScheduler) findNodes() {
+func (ctl *CentralScheduler) findNodes() error {
 	// TODO add informer to get the list of nodes
-	nodes, _ := ctl.clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{
+	nodes, err := ctl.clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("%s!=%s", "node-role.kubernetes.io/control-plane", ""),
 	})
+
+    if err != nil {
+        return err
+    }
+
 	nMap := make(map[string]int)
+    nodeNames := make([]string, len(nodes.Items))
 
 	for i, node := range nodes.Items {
 		nMap[node.Name] = i
+        nodeNames[i] = node.Name
 	}
 
 	ctl.nodeMap = nMap
+    ctl.nodeNames = nodeNames
+
+    return nil
 }
 
 
@@ -46,8 +56,8 @@ func (ctl *CentralScheduler) createSchedEvent(p *v1.Pod, n string, eventTime tim
         Reason:         "Scheduled",
         EventTime:      metav1.NewMicroTime(eventTime),
         Type:           "Normal",
-        ReportingController: ctl.Name,
-        ReportingInstance: fmt.Sprintf("%s-dev-k8s-lc869-00", ctl.Name),
+        ReportingController: ctl.name,
+        ReportingInstance: fmt.Sprintf("%s-dev-k8s-lc869-00", ctl.name),
         InvolvedObject: v1.ObjectReference{
             Kind:      "Pod",
             Name:      p.Name,
