@@ -21,6 +21,7 @@ spec:
         tier: control-plane
         name: central-sched
     spec:
+      terminationGracePeriodSeconds: 30
       serviceAccountName: central-sched-account
       nodeSelector:
         node-role.kubernetes.io/control-plane: ""
