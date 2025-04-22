@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/LucaChot/pronto/src/central"
+	"github.com/LucaChot/pronto/src/profiler"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/flowcontrol"
@@ -39,6 +40,8 @@ func GetInClusterClientset() (*kubernetes.Clientset, error) {
 func main() {
     ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
+
+    profiler.StartProfilerServer(":50053")
 
     clientset, err := GetInClusterClientset()
 	if err != nil {
