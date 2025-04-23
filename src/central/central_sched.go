@@ -18,6 +18,12 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
+type CtlAliasTable struct {
+    at      *alias.AliasTable
+    idxs    []int
+}
+
+
 type CentralScheduler struct {
     name        string
     clientset   *kubernetes.Clientset
@@ -25,7 +31,7 @@ type CentralScheduler struct {
     nodeMap     map[string]int
     nodeNames   []string
     nodeSignals []atomic.Uint64
-    aliasTable  atomic.Pointer[alias.AliasTable]
+    aliasTable  atomic.Pointer[CtlAliasTable]
 
     bindQueue   chan *podBind
     retryQueue  chan *v1.Pod
@@ -74,6 +80,10 @@ func (ctl *CentralScheduler) Start() {
     ctl.startBindPodWorkers(4)
 }
 
+/*
+TODO: Maybe handle the different errors of the aliasTable separately
+E.g. zero length weights slice vs invalide values
+*/
 func (ctl *CentralScheduler) startAliasTableUpdater() {
     go func() {
         for {
@@ -81,20 +91,30 @@ func (ctl *CentralScheduler) startAliasTableUpdater() {
             log.Debug("CTL: UPDATING ALIAS TABLE")
 
             n := len(ctl.nodeSignals)
-            signals := make([]float64, n)
+            signals := make([]float64,0, n)
+            idxs := make([]int,0, n)
 
             for i := range n {
-                signals[i] = 1 / (math.Float64frombits(ctl.nodeSignals[i].Load()) + 1e-9)
+                signal := math.Float64frombits(ctl.nodeSignals[i].Load())
+                if signal < 1 {
+                    w := 1 / math.Max(signal, 1e-3)
+                    signals = append(signals, w)
+                    idxs = append(idxs, i)
+                }
             }
 
             at, err := alias.New(signals)
             if err != nil {
                 log.WithFields(log.Fields{
                     "error": err,
-                }).Debug("CTL: FAILED TO BUILD ALIAS TABLE")
+                }).Debug("CTL: ALL REMOTE NODES ARE OVERLOADED")
+                ctl.aliasTable.Store(nil)
                 continue
             }
-            ctl.aliasTable.Store(at)
+            ctl.aliasTable.Store(&CtlAliasTable{
+                at: at,
+                idxs: idxs,
+            })
         }
     }()
 }
@@ -102,19 +122,17 @@ func (ctl *CentralScheduler) startAliasTableUpdater() {
 
 /*
 Randlomly generates a node index depending on their probabilites in the
-aliasTable TODO: Improve error handling when AliasTable is not yet available
-for usage, i.e. use assign to a random node or add the pods to a queue to then
-be dealt with after a timeout
+aliasTable
 */
 func (ctl *CentralScheduler) selectNode() (string, error) {
-    at := ctl.aliasTable.Load()
+    ctlAt := ctl.aliasTable.Load()
 
-    if at == nil {
+    if ctlAt == nil {
          return "", errors.New("alias table is not available")
     }
 
-    idx := at.Sample()
-    name := ctl.nodeNames[idx]
+    idx := ctlAt.at.Sample()
+    name := ctl.nodeNames[ctlAt.idxs[idx]]
 
     log.WithFields(log.Fields{
         "NODE": name,
