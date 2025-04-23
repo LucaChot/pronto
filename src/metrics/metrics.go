@@ -15,7 +15,7 @@ const (
 
 type MetricsCollector struct {
     ys       []float64
-    Y       atomic.Pointer[mat.VecDense]
+    Y       atomic.Pointer[[]float64]
     entries int
     output  chan *mat.Dense
 }
@@ -26,7 +26,7 @@ func New() (*MetricsCollector, <-chan *mat.Dense) {
         ys:  make([]float64, b * d),
         output: make(chan *mat.Dense),
     }
-    mc.Y.Store(mat.NewVecDense(d, nil))
+    mc.Y.Store(nil)
 
 
     go mc.Collect()
@@ -34,6 +34,9 @@ func New() (*MetricsCollector, <-chan *mat.Dense) {
 	return &mc, mc.output
 }
 
+/*
+TODO: Investigate difference between ticker and time.Sleep()
+*/
 func (mc *MetricsCollector) Collect() {
     ticker := time.NewTicker(time.Second)
     defer ticker.Stop()
@@ -47,7 +50,7 @@ func (mc *MetricsCollector) Collect() {
             mc.ys[row] = cpu
             mc.ys[row + 1] = mem
 
-            mc.Y.Store(mat.NewVecDense(d, []float64{cpu, mem}))
+            mc.Y.Store(&[]float64{cpu, mem})
             log.WithFields(log.Fields{
                 "CPU" : cpu,
                 "MEM" : mem,

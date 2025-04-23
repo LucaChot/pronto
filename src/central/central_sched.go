@@ -68,7 +68,7 @@ func (ctl *CentralScheduler) Init() error {
 
     ctl.nodeSignals = make([]atomic.Uint64, len(ctl.nodeMap))
     for node := range(len(ctl.nodeMap)) {
-        ctl.nodeSignals[node].Store(math.Float64bits(1))
+        ctl.nodeSignals[node].Store(math.Float64bits(0.0))
     }
 
     return nil
@@ -96,9 +96,8 @@ func (ctl *CentralScheduler) startAliasTableUpdater() {
 
             for i := range n {
                 signal := math.Float64frombits(ctl.nodeSignals[i].Load())
-                if signal < 1 {
-                    w := 1 / math.Max(signal, 1e-3)
-                    signals = append(signals, w)
+                if signal > 1e-3 {
+                    signals = append(signals, signal)
                     idxs = append(idxs, i)
                 }
             }

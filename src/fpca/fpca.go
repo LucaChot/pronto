@@ -1,11 +1,12 @@
 package fpca
 
 import (
+	"math"
 	"sync/atomic"
 
-	log "github.com/sirupsen/logrus"
 	mt "github.com/LucaChot/pronto/src/matrix"
 	pb "github.com/LucaChot/pronto/src/message"
+	log "github.com/sirupsen/logrus"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -25,16 +26,9 @@ func init(){
     identity = mat.NewDiagDense(b, ones)
 }
 
-
-
-type USigmaPair struct {
-    U *mat.Dense
-    Sigma *mat.DiagDense
-}
-
 type FPCAAgent struct {
     inB         <-chan *mat.Dense
-    USIgma      atomic.Pointer[USigmaPair]
+    SumProbU      atomic.Pointer[[]float64]
 
     adaptive    bool
 
@@ -72,6 +66,12 @@ func New(ch <-chan *mat.Dense) *FPCAAgent {
 	return &fp
 }
 
+/*
+TODO: See if I need to change the standard subspace merge operation to be like
+the aggregate merge operation
+TODO: Update the AggMerge threshold to take into account the distribution of U,
+e.g. USigma vs U
+*/
 func (fp *FPCAAgent) RunLocalUpdates() {
     // Initial B matrix
     log.Debug("FPCA: WAITING ON B")
@@ -89,14 +89,29 @@ func (fp *FPCAAgent) RunLocalUpdates() {
             fp.AggMerge()
         }
 
-        fp.USIgma.Store(&USigmaPair{
-            U: fp.u,
-            Sigma: fp.sigma,
-        })
-        log.Debug("FPCA: UPDATED U AND SIGMA")
-
+        fp.UpdateProbU()
         fp.lastU = fp.u
     }
+}
+
+func (fp *FPCAAgent) UpdateProbU() {
+    var uSigma, probU mat.Dense
+    uSigma.Mul(fp.u, fp.sigma)
+    probU.Scale(1 / fp.sigma.Trace(), &uSigma)
+
+    rows, _ := fp.u.Dims()
+    sumProbU := make([]float64, rows)
+    for i := range rows {
+        row := probU.RawRowView(i)
+        sum := 0.0
+        for _, v := range row {
+            sum += math.Abs(v)
+        }
+        sumProbU[i] = sum
+    }
+
+    fp.SumProbU.Store(&sumProbU)
+    log.Debug("FPCA: UPDATED U AND SIGMA")
 }
 
 // TODO: Look into whether I can move the key AGG retrieval out of this
@@ -151,11 +166,7 @@ func (fp *FPCAAgent) InitFPCAEdge() {
 
     fp.AggMerge()
 
-    fp.USIgma.Store(&USigmaPair{
-        U: fp.u,
-        Sigma: fp.sigma,
-    })
-
+    fp.UpdateProbU()
     fp.lastU = fp.u
     log.Debug("FPCA: FINISHED INITIATING U AND SIGMA")
 }

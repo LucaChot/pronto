@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -20,18 +21,12 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-const (
-    TR = 0.5
-)
-
 type RemoteScheduler struct {
     hostname string
     onNode *v1.Node
 
     mc *metrics.MetricsCollector
     fp *fpca.FPCAAgent
-
-    tr float64
 
     clientset   *kubernetes.Clientset
     ctlPlStub  pb.PodPlacementClient
@@ -85,9 +80,7 @@ func (rmt *RemoteScheduler) SetOnNode() {
 func New() *RemoteScheduler {
 
     /* Initialise scheduler values */
-    rmt := &RemoteScheduler{
-        tr: TR,
-    }
+    rmt := &RemoteScheduler{}
 
     /* Run metrics collection */
     var sender <-chan *mat.Dense
@@ -109,38 +102,59 @@ func New() *RemoteScheduler {
 	return rmt
 }
 
-func absFunc(i, j int, v float64) (float64) {
-    return math.Abs(v)
-}
-
-
-func (rmt *RemoteScheduler) JobSignal() float64 {
-    y := rmt.mc.Y.Load()
-
-    uSigmaPair := rmt.fp.USIgma.Load()
-    if uSigmaPair == nil {
-        log.Debug("RMT: WAITING FOR U AND SIGMA")
-        return rmt.tr
+/*
+TODO: Look at including information such as variance to determine the threshold
+*/
+func (rmt *RemoteScheduler) JobSignal() (float64, error) {
+    yPtr := rmt.mc.Y.Load()
+    if yPtr == nil {
+        return 0.0, errors.New("y vector is not available")
     }
-    u := uSigmaPair.U
-    sigma := uSigmaPair.Sigma
 
-    log.WithFields(log.Fields{
-        "Y" : *y,
-        "U" : *u,
-        "SIGMA" : *sigma,
-    }).Debug("RMT: CALCULATING JOB SIGNAL")
+    sumProbUPtr := rmt.fp.SumProbU.Load()
+    if sumProbUPtr == nil {
+        return 0.0, errors.New("sumProbU matrix is not available")
+    }
 
-    var temp, p, wP mat.Dense
-    temp.Mul(y.T(), u)
-    p.Apply(absFunc, &temp)
+    y := *yPtr
+    sumProbU := *sumProbUPtr
 
-    wP.Mul(&p, sigma)
+    // 1. Check if any y[i] is already >= 1
+	for _, yi := range y {
+		if yi >= 0.95 {
+			return 0.0, nil
+		}
+	}
 
-    return mat.Sum(&wP)
+    kMin := math.Inf(1)
+	found := false
+	for i, ui := range sumProbU {
+		if ui > 0 {
+			cand := (1.0 - y[i]) / ui
+			if cand < kMin {
+				kMin = cand
+			}
+			found = true
+		}
+	}
+
+	// 3. If no positive slope found, never reaches 1
+	if !found {
+		return math.Inf(1), nil
+	}
+
+	// 4. Clamp at zero
+	if kMin < 0 {
+		return 0.0, nil
+	}
+
+	return kMin, nil
 }
 
 /* Core Scheduling loop */
+/*
+TODO: Implement error handling
+*/
 func (rmt *RemoteScheduler) Schedule() {
     ticker := time.NewTicker(time.Second)
     defer ticker.Stop()
@@ -148,13 +162,12 @@ func (rmt *RemoteScheduler) Schedule() {
         <-ticker.C
 		log.Debug("RMT: BEGIN POD REQUEST")
 
-        signal := rmt.JobSignal()
+        signal, err := rmt.JobSignal()
         log.WithFields(log.Fields{
             "R" : signal,
+            "ERROR" : err,
         }).Debug("RMT: CALCULATED JOB SIGNAL")
-        if signal < rmt.tr {
-            rmt.RequestPod(signal)
-        }
+        rmt.RequestPod(signal)
 	}
 }
 
