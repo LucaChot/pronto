@@ -2,6 +2,7 @@ package central
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sync/atomic"
@@ -25,6 +26,9 @@ type CentralScheduler struct {
     nodeNames   []string
     nodeSignals []atomic.Uint64
     aliasTable  atomic.Pointer[alias.AliasTable]
+
+    bindQueue   chan *podBind
+    retryQueue  chan *v1.Pod
 
     pb.UnimplementedPodPlacementServer
 }
@@ -67,6 +71,7 @@ func (ctl *CentralScheduler) Init() error {
 func (ctl *CentralScheduler) Start() {
     ctl.startAliasTableUpdater()
     ctl.startPlacementServer()
+    ctl.startBindPodWorkers(4)
 }
 
 func (ctl *CentralScheduler) startAliasTableUpdater() {
@@ -101,11 +106,11 @@ aliasTable TODO: Improve error handling when AliasTable is not yet available
 for usage, i.e. use assign to a random node or add the pods to a queue to then
 be dealt with after a timeout
 */
-func (ctl *CentralScheduler) selectNode() string {
+func (ctl *CentralScheduler) selectNode() (string, error) {
     at := ctl.aliasTable.Load()
 
     if at == nil {
-        return ""
+         return "", errors.New("alias table is not available")
     }
 
     idx := at.Sample()
@@ -115,7 +120,7 @@ func (ctl *CentralScheduler) selectNode() string {
         "NODE": name,
     }).Debug("CTL: RANDOMLY ASSIGNED NODE")
 
-    return name
+    return name, nil
 }
 
 /* Core Scheduling loop */
@@ -169,41 +174,62 @@ func (ctl *CentralScheduler) handleWatchEvents(ctx context.Context, watch watch.
                 continue
             }
 
-            start := time.Now().UTC()
-
-            p, ok := event.Object.(*v1.Pod)
+            pod, ok := event.Object.(*v1.Pod)
             if !ok {
                 log.Warn("CTL: UNEXPECTED EVENT OBJECT TYPE")
                 continue
             }
 
             log.WithFields(log.Fields{
-                "namespace": p.Namespace,
-                "pod":       p.Name,
+                "namespace": pod.Namespace,
+                "pod":       pod.Name,
             }).Debug("BEGIN POD SCHEDULE")
 
 
             /* Find a node to place the pod */
-            node := ctl.selectNode()
-            if node == "" {
-                log.Debug("FAILED TO FIND SUITABLE NODE")
+            node, err := ctl.selectNode()
+            if err != nil {
+                log.WithFields(log.Fields{
+                    "error": err,
+                }).Debug("CTL: FAILED TO FIND SUITABLE NODE")
+                ctl.retryQueue <- pod
                 continue
             }
 
-            ctl.placePodToNode(p, node)
+            ctl.bindQueue <- &podBind{
+                pod:    pod,
+                node:   node,
+            }
+        case p := <- ctl.retryQueue:
+            numPodsWaiting := len(ctl.retryQueue)
+            podsWaiting := make([]*v1.Pod, numPodsWaiting + 1)
+            podsWaiting[0] = p
 
-            /* Collect information for event */
-            end := time.Now().UTC()
-            nanosecondsSpent := end.Sub(start).Nanoseconds()
-            annotations := map[string]string{
-                "scheduler/nanoseconds": fmt.Sprintf("%d", nanosecondsSpent),
+            for i := 1; i < numPodsWaiting + 1; i++ {
+                podsWaiting[i] = <-ctl.retryQueue
             }
 
-            /* Creates a new event alerting the binding of the pod */
-            if err := ctl.createSchedEvent(p, node, end, annotations); err != nil {
+            for _, pod := range podsWaiting {
                 log.WithFields(log.Fields{
-                    "err": err,
-                }).Debug("FAILED TO CREATE EVENT")
+                    "namespace": pod.Namespace,
+                    "pod":       pod.Name,
+                }).Debug("BEGIN POD SCHEDULE")
+
+
+                /* Find a node to place the pod */
+                node, err := ctl.selectNode()
+                if err != nil {
+                    log.WithFields(log.Fields{
+                        "error": err,
+                    }).Debug("CTL: FAILED TO FIND SUITABLE NODE")
+                    ctl.retryQueue <- pod
+                    continue
+                }
+
+                ctl.bindQueue <- &podBind{
+                    pod:    pod,
+                    node:   node,
+                }
             }
         }
     }
