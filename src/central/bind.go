@@ -3,6 +3,7 @@ package central
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	v1 "k8s.io/api/core/v1"
@@ -103,6 +104,7 @@ func (ctl * CentralScheduler) bindPodWorker() {
     for item := range ctl.bindQueue {
         pod := item.pod
         node := item.node
+        log.Printf("%s <-bind", pod.Name)
         bd.Reset()
         bd.withBind(pod, node)
 
@@ -179,12 +181,14 @@ func (ctl * CentralScheduler) bindPodWorker() {
             }
 
             // now requeue this pod for a later bind attempt
+            log.Printf("retry <-%s", pod.Name)
             ctl.retryQueue <- pod
             continue
         }
 
         <-eventResult
         cancel()
+        log.Printf("BIND: successfully bound %s", pod.Name)
     }
 }
 

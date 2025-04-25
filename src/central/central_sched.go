@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/LucaChot/pronto/src/alias"
 	pb "github.com/LucaChot/pronto/src/message"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,10 +18,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-type CtlAliasTable struct {
-    at      *alias.AliasTable
-    idxs    []int
-}
+const MAXSAMPLES = 4
 
 
 type CentralScheduler struct {
@@ -31,7 +28,12 @@ type CentralScheduler struct {
     nodeMap     map[string]int
     nodeNames   []string
     nodeSignals []atomic.Uint64
+
     aliasTable  atomic.Pointer[CtlAliasTable]
+    atLock      sync.Mutex
+    atCond      *sync.Cond
+
+
 
     bindQueue   chan *podBind
     retryQueue  chan *v1.Pod
@@ -53,6 +55,7 @@ func New(name string, opts ...Option) *CentralScheduler {
 	ctl := &CentralScheduler{
 		name: name,
     }
+    ctl.atCond = sync.NewCond(&ctl.atLock)
 
     for _, opt := range opts {
 		opt(ctl)
@@ -86,9 +89,9 @@ E.g. zero length weights slice vs invalide values
 */
 func (ctl *CentralScheduler) startAliasTableUpdater() {
     go func() {
+        log.Debug("ALIAS: STARTING ALIAS UPDATE")
         for {
-            time.Sleep(1 * time.Second)
-            log.Debug("CTL: UPDATING ALIAS TABLE")
+            time.Sleep(10 * time.Millisecond)
 
             n := len(ctl.nodeSignals)
             signals := make([]float64,0, n)
@@ -102,18 +105,24 @@ func (ctl *CentralScheduler) startAliasTableUpdater() {
                 }
             }
 
-            at, err := alias.New(signals)
+            cat, err := NewCtlAliasTable(signals)
             if err != nil {
-                log.WithFields(log.Fields{
-                    "error": err,
-                }).Debug("CTL: ALL REMOTE NODES ARE OVERLOADED")
-                ctl.aliasTable.Store(nil)
+                log.WithError(err)
                 continue
             }
-            ctl.aliasTable.Store(&CtlAliasTable{
-                at: at,
-                idxs: idxs,
-            })
+            if err := cat.WithIndxs(idxs); err != nil {
+                log.WithError(err)
+                continue
+            }
+            if err := cat.WithMaxSamples(MAXSAMPLES); err != nil {
+                log.WithError(err)
+                continue
+            }
+
+            ctl.aliasTable.Store(cat)
+            ctl.atLock.Lock()
+            ctl.atCond.Signal()
+            ctl.atLock.Unlock()
         }
     }()
 }
@@ -124,19 +133,18 @@ Randlomly generates a node index depending on their probabilites in the
 aliasTable
 */
 func (ctl *CentralScheduler) selectNode() (string, error) {
-    ctlAt := ctl.aliasTable.Load()
+    cat := ctl.aliasTable.Load()
 
-    if ctlAt == nil {
+    if cat == nil {
          return "", errors.New("alias table is not available")
     }
 
-    idx := ctlAt.at.Sample()
-    name := ctl.nodeNames[ctlAt.idxs[idx]]
+    idx, err := cat.Sample()
+    if err != nil {
+        return "", err
+    }
 
-    log.WithFields(log.Fields{
-        "NODE": name,
-    }).Debug("CTL: RANDOMLY ASSIGNED NODE")
-
+    name := ctl.nodeNames[idx]
     return name, nil
 }
 
@@ -173,76 +181,73 @@ func (ctl *CentralScheduler) RunScheduler(ctx context.Context) error {
     }
 }
 
+func (ctl *CentralScheduler) waitForAliasTable() {
+    ctl.atLock.Lock()
+    cat := ctl.aliasTable.Load()
+    if cat == nil {
+        ctl.atCond.Wait()
+    } else {
+        if left, err := cat.SamplesLeft(); !left || err != nil {
+            ctl.atCond.Wait()
+        }
+    }
+    ctl.atLock.Unlock()
+}
+
 /* Core Scheduling loop */
 func (ctl *CentralScheduler) handleWatchEvents(ctx context.Context, watch watch.Interface) error {
     defer watch.Stop()
 
     for {
-        select {
-        case <-ctx.Done():
-            log.Info("CTL: CONTEXT CANCELLED, EXITING EVENT LOOP")
-            return nil
-        case event, ok := <- watch.ResultChan():
-            if !ok {
-                return fmt.Errorf("CTL: WATCH CHANNEL CLOSED")
-            }
+        ctl.waitForAliasTable()
+        for {
+            select {
+            case <-ctx.Done():
+                log.Info("CTL: CONTEXT CANCELLED, EXITING EVENT LOOP")
+                return nil
+            case pod := <- ctl.retryQueue:
+                log.Debugf("%s <-retry", pod.Name)
+                /* Find a node to place the pod */
+                node, err := ctl.selectNode()
+                if err != nil {
+                    log.WithError(err)
+                    log.Debugf("retry <-%s", pod.Name)
+                    ctl.retryQueue <- pod
+                    break
+                }
 
-            if event.Type != "ADDED" {
-                continue
-            }
+                log.Debugf("bind <-%s", pod.Name)
+                ctl.bindQueue <- &podBind{
+                    pod:    pod,
+                    node:   node,
+                }
+            case event, ok := <- watch.ResultChan():
+                if !ok {
+                    return fmt.Errorf("CTL: WATCH CHANNEL CLOSED")
+                }
 
-            pod, ok := event.Object.(*v1.Pod)
-            if !ok {
-                log.Warn("CTL: UNEXPECTED EVENT OBJECT TYPE")
-                continue
-            }
+                if event.Type != "ADDED" {
+                    continue
+                }
+                log.Info("CTL: FETCHING FROM WATCH QUEUE")
 
-            log.WithFields(log.Fields{
-                "namespace": pod.Namespace,
-                "pod":       pod.Name,
-            }).Debug("BEGIN POD SCHEDULE")
-
-
-            /* Find a node to place the pod */
-            node, err := ctl.selectNode()
-            if err != nil {
-                log.WithFields(log.Fields{
-                    "error": err,
-                }).Debug("CTL: FAILED TO FIND SUITABLE NODE")
-                ctl.retryQueue <- pod
-                continue
-            }
-
-            ctl.bindQueue <- &podBind{
-                pod:    pod,
-                node:   node,
-            }
-        case p := <- ctl.retryQueue:
-            numPodsWaiting := len(ctl.retryQueue)
-            podsWaiting := make([]*v1.Pod, numPodsWaiting + 1)
-            podsWaiting[0] = p
-
-            for i := 1; i < numPodsWaiting + 1; i++ {
-                podsWaiting[i] = <-ctl.retryQueue
-            }
-
-            for _, pod := range podsWaiting {
-                log.WithFields(log.Fields{
-                    "namespace": pod.Namespace,
-                    "pod":       pod.Name,
-                }).Debug("BEGIN POD SCHEDULE")
-
+                pod, ok := event.Object.(*v1.Pod)
+                if !ok {
+                    log.Warn("CTL: UNEXPECTED EVENT OBJECT TYPE")
+                    continue
+                }
+                log.Debugf("%s <-watch", pod.Name)
 
                 /* Find a node to place the pod */
                 node, err := ctl.selectNode()
                 if err != nil {
-                    log.WithFields(log.Fields{
-                        "error": err,
-                    }).Debug("CTL: FAILED TO FIND SUITABLE NODE")
+                    log.WithError(err)
+                    log.Debugf("retry <-%s", pod.Name)
                     ctl.retryQueue <- pod
-                    continue
+                    break
                 }
 
+                log.Debugf("bind <-%s", pod.Name)
                 ctl.bindQueue <- &podBind{
                     pod:    pod,
                     node:   node,

@@ -37,11 +37,6 @@ func (ctl *CentralScheduler) startPlacementServer() {
 }
 
 func (ctl *CentralScheduler) RequestPod(ctx context.Context, in *pb.PodRequest) (*pb.EmptyReply, error) {
-    log.WithFields(log.Fields{
-        "SIGNAL":      in.Signal,
-        "NODE":     in.Node,
-    }).Debug("RECEIVED JOB SIGNAL")
-
     index := ctl.nodeMap[in.Node]
     ctl.nodeSignals[index].Store(math.Float64bits(in.Signal))
 

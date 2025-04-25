@@ -6,6 +6,10 @@ import (
 )
 
 
+type Alias interface {
+    Sample() (int, error)
+}
+
 // AliasTable holds the precomputed tables for the Alias Method.
 type AliasTable struct {
 	n     int       // Number of outcomes
@@ -91,15 +95,15 @@ func New(weights []float64) (*AliasTable, error) {
 }
 
 // Sample returns a randomly sampled index based on the original weights.
-func (at *AliasTable) Sample() int {
+func (at *AliasTable) Sample() (int, error) {
 	// 1. Choose a column (bin) uniformly at random
 	i := rand.IntN(at.n)
 
 	// 2. Flip a biased coin for that column
 	if rand.Float64() < at.prob[i] {
 		// Return the primary item in the bin
-		return i
+		return i, nil
 	}
 	// Return the alias item in the bin
-	return at.alias[i]
+	return at.alias[i], nil
 }
