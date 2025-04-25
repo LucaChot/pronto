@@ -156,17 +156,15 @@ func (rmt *RemoteScheduler) JobSignal() (float64, error) {
 TODO: Implement error handling
 */
 func (rmt *RemoteScheduler) Schedule() {
-    ticker := time.NewTicker(time.Second)
+    ticker := time.NewTicker(time.Millisecond)
     defer ticker.Stop()
     for {
         <-ticker.C
-		log.Debug("RMT: BEGIN POD REQUEST")
 
         signal, err := rmt.JobSignal()
-        log.WithFields(log.Fields{
-            "R" : signal,
-            "ERROR" : err,
-        }).Debug("RMT: CALCULATED JOB SIGNAL")
+        if err != nil {
+            log.WithError(err)
+        }
         rmt.RequestPod(signal)
 	}
 }

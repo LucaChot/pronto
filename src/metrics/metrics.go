@@ -4,7 +4,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"gonum.org/v1/gonum/mat"
 )
 
@@ -38,7 +37,7 @@ func New() (*MetricsCollector, <-chan *mat.Dense) {
 TODO: Investigate difference between ticker and time.Sleep()
 */
 func (mc *MetricsCollector) Collect() {
-    ticker := time.NewTicker(time.Second)
+    ticker := time.NewTicker(100 * time.Millisecond)
     defer ticker.Stop()
     for {
         for i := range b {
@@ -51,10 +50,6 @@ func (mc *MetricsCollector) Collect() {
             mc.ys[row + 1] = mem
 
             mc.Y.Store(&[]float64{cpu, mem})
-            log.WithFields(log.Fields{
-                "CPU" : cpu,
-                "MEM" : mem,
-            }).Debug("METRIC: SENT Y")
         }
         bT := mat.NewDense(b, d, mc.ys)
 
@@ -63,8 +58,6 @@ func (mc *MetricsCollector) Collect() {
         B.CloneFrom(bT.T())
 
         mc.output<- &B
-        log.Debug("METRIC: SENT B")
-
     }
 }
 

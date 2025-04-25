@@ -74,15 +74,11 @@ e.g. USigma vs U
 */
 func (fp *FPCAAgent) RunLocalUpdates() {
     // Initial B matrix
-    log.Debug("FPCA: WAITING ON B")
     fp.b = <-fp.inB
     fp.InitFPCAEdge()
 
     for {
-        log.Debug("FPCA: WAITING ON B")
         fp.b = <-fp.inB
-        log.Debug("FPCA: RECIEVED B AND BEGINNING FPCA")
-
 		fp.FPCAEdge()
 
         if !mat.EqualApprox(fp.u, fp.lastU, fp.epsilon) {
@@ -111,7 +107,6 @@ func (fp *FPCAAgent) UpdateProbU() {
     }
 
     fp.SumProbU.Store(&sumProbU)
-    log.Debug("FPCA: UPDATED U AND SIGMA")
 }
 
 // TODO: Look into whether I can move the key AGG retrieval out of this
@@ -159,7 +154,6 @@ func (fp *FPCAAgent) InitFPCAEdge() {
     if mc.localU, mc.localSigma = 0,0:
         mc.LocalU, mc.LocalSigma := SVD(B,r)
     */
-    log.Debug("FPCA: RECIEVED B AND INITIATING U AND SIGMA")
     fp.localU, fp.localSigma = mt.SVDR(fp.b, fp.r)
     fp.u = fp.localU
     fp.sigma = fp.localSigma

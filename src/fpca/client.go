@@ -54,7 +54,6 @@ TODO: Add handler to query connection to  aggregate server in the event of
 connection failing
 */
 func (fp *FPCAAgent) SendAggRequest(inM *mat.Dense) (*mat.Dense) {
-    log.Debug("FPCA: REQUESTING AGGREGATION")
     ctx := context.Background()
 
     rows, cols := inM.Dims()
@@ -81,7 +80,6 @@ func (fp *FPCAAgent) SendAggRequest(inM *mat.Dense) (*mat.Dense) {
 	}
 
     log.Debug("FPCA: COMPLETED AGGREGATION")
-
     return mat.NewDense(int(outM.Rows), int(outM.Cols), outM.Data)
 }
 
