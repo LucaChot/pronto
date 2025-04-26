@@ -40,3 +40,5 @@ spec:
         image: lucachot/aggregator:latest
         imagePullPolicy: Always
       restartPolicy: Always
+      imagePullSecrets:
+      - name: regcred

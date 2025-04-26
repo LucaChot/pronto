@@ -18,4 +18,6 @@ spec:
           requests:
             cpu: "100m"
       restartPolicy: Never
+      imagePullSecrets:
+      - name: regcred
   backoffLimit: 4

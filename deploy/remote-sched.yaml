@@ -38,3 +38,5 @@ spec:
         image: lucachot/remote-sched:latest
         imagePullPolicy: Always
       restartPolicy: Always
+      imagePullSecrets:
+      - name: regcred
