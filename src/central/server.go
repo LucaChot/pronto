@@ -1,13 +1,15 @@
 package central
 
 import (
-	"context"
+	"io"
 	"math"
 	"net"
 
 	pb "github.com/LucaChot/pronto/src/message"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 
@@ -21,7 +23,7 @@ func (ctl *CentralScheduler) startPlacementServer() {
 	}
 
 	s := grpc.NewServer()
-    pb.RegisterPodPlacementServer(s, ctl)
+    pb.RegisterSignalServiceServer(s, ctl)
 
 	log.WithFields(log.Fields{
 		"ADDRESS": lis.Addr(),
@@ -36,10 +38,29 @@ func (ctl *CentralScheduler) startPlacementServer() {
 	}()
 }
 
-func (ctl *CentralScheduler) RequestPod(ctx context.Context, in *pb.PodRequest) (*pb.EmptyReply, error) {
-    index := ctl.nodeMap[in.Node]
-    ctl.nodeSignals[index].Store(math.Float64bits(in.Signal))
+func (ctl *CentralScheduler) StreamSignals(stream pb.SignalService_StreamSignalsServer) error {
+    var m pb.Signal
+    var node string
+    for {
+        err := stream.RecvMsg(&m)
+        if err != nil {
+            if node != "" {
+                index := ctl.nodeMap[node]
+                ctl.nodeSignals[index].Store(math.Float64bits(0.0))
+            }
+            if err == io.EOF {
+                log.Printf("Client %s disconnected gracefully.", node)
+                return nil
+            }
+            log.Printf("Error receiving stream from client %s: %v", node, err)
+			return status.Errorf(codes.Internal, "error receiving stream: %v", err)
+        }
 
-    return &pb.EmptyReply{}, nil
+        if node == "" {
+            node = m.GetNode()
+        }
+        index := ctl.nodeMap[node]
+        ctl.nodeSignals[index].Store(math.Float64bits(m.GetSignal()))
+    }
 }
 

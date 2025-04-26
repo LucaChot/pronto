@@ -19,15 +19,15 @@ option go_package = "github.com/LucaChot/pronto/src/message";
 
 package message;
 
-message PodRequest {
+message Signal {
     string node = 1;
     double signal = 2;
 }
 
-message EmptyReply {}
+message SignalAck {}
 
-service PodPlacement {
-  rpc RequestPod(PodRequest) returns (EmptyReply);
+service SignalService {
+  rpc StreamSignals(stream Signal) returns (SignalAck);
 }
 
 message DenseMatrix {

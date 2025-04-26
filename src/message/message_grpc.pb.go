@@ -33,104 +33,97 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	PodPlacement_RequestPod_FullMethodName = "/message.PodPlacement/RequestPod"
+	SignalService_StreamSignals_FullMethodName = "/message.SignalService/StreamSignals"
 )
 
-// PodPlacementClient is the client API for PodPlacement service.
+// SignalServiceClient is the client API for SignalService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type PodPlacementClient interface {
-	RequestPod(ctx context.Context, in *PodRequest, opts ...grpc.CallOption) (*EmptyReply, error)
+type SignalServiceClient interface {
+	StreamSignals(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[Signal, SignalAck], error)
 }
 
-type podPlacementClient struct {
+type signalServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewPodPlacementClient(cc grpc.ClientConnInterface) PodPlacementClient {
-	return &podPlacementClient{cc}
+func NewSignalServiceClient(cc grpc.ClientConnInterface) SignalServiceClient {
+	return &signalServiceClient{cc}
 }
 
-func (c *podPlacementClient) RequestPod(ctx context.Context, in *PodRequest, opts ...grpc.CallOption) (*EmptyReply, error) {
+func (c *signalServiceClient) StreamSignals(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[Signal, SignalAck], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(EmptyReply)
-	err := c.cc.Invoke(ctx, PodPlacement_RequestPod_FullMethodName, in, out, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &SignalService_ServiceDesc.Streams[0], SignalService_StreamSignals_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &grpc.GenericClientStream[Signal, SignalAck]{ClientStream: stream}
+	return x, nil
 }
 
-// PodPlacementServer is the server API for PodPlacement service.
-// All implementations must embed UnimplementedPodPlacementServer
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SignalService_StreamSignalsClient = grpc.ClientStreamingClient[Signal, SignalAck]
+
+// SignalServiceServer is the server API for SignalService service.
+// All implementations must embed UnimplementedSignalServiceServer
 // for forward compatibility.
-type PodPlacementServer interface {
-	RequestPod(context.Context, *PodRequest) (*EmptyReply, error)
-	mustEmbedUnimplementedPodPlacementServer()
+type SignalServiceServer interface {
+	StreamSignals(grpc.ClientStreamingServer[Signal, SignalAck]) error
+	mustEmbedUnimplementedSignalServiceServer()
 }
 
-// UnimplementedPodPlacementServer must be embedded to have
+// UnimplementedSignalServiceServer must be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedPodPlacementServer struct{}
+type UnimplementedSignalServiceServer struct{}
 
-func (UnimplementedPodPlacementServer) RequestPod(context.Context, *PodRequest) (*EmptyReply, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method RequestPod not implemented")
+func (UnimplementedSignalServiceServer) StreamSignals(grpc.ClientStreamingServer[Signal, SignalAck]) error {
+	return status.Errorf(codes.Unimplemented, "method StreamSignals not implemented")
 }
-func (UnimplementedPodPlacementServer) mustEmbedUnimplementedPodPlacementServer() {}
-func (UnimplementedPodPlacementServer) testEmbeddedByValue()                      {}
+func (UnimplementedSignalServiceServer) mustEmbedUnimplementedSignalServiceServer() {}
+func (UnimplementedSignalServiceServer) testEmbeddedByValue()                       {}
 
-// UnsafePodPlacementServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to PodPlacementServer will
+// UnsafeSignalServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to SignalServiceServer will
 // result in compilation errors.
-type UnsafePodPlacementServer interface {
-	mustEmbedUnimplementedPodPlacementServer()
+type UnsafeSignalServiceServer interface {
+	mustEmbedUnimplementedSignalServiceServer()
 }
 
-func RegisterPodPlacementServer(s grpc.ServiceRegistrar, srv PodPlacementServer) {
-	// If the following call pancis, it indicates UnimplementedPodPlacementServer was
+func RegisterSignalServiceServer(s grpc.ServiceRegistrar, srv SignalServiceServer) {
+	// If the following call pancis, it indicates UnimplementedSignalServiceServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&PodPlacement_ServiceDesc, srv)
+	s.RegisterService(&SignalService_ServiceDesc, srv)
 }
 
-func _PodPlacement_RequestPod_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(PodRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(PodPlacementServer).RequestPod(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: PodPlacement_RequestPod_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PodPlacementServer).RequestPod(ctx, req.(*PodRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+func _SignalService_StreamSignals_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(SignalServiceServer).StreamSignals(&grpc.GenericServerStream[Signal, SignalAck]{ServerStream: stream})
 }
 
-// PodPlacement_ServiceDesc is the grpc.ServiceDesc for PodPlacement service.
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SignalService_StreamSignalsServer = grpc.ClientStreamingServer[Signal, SignalAck]
+
+// SignalService_ServiceDesc is the grpc.ServiceDesc for SignalService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var PodPlacement_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "message.PodPlacement",
-	HandlerType: (*PodPlacementServer)(nil),
-	Methods: []grpc.MethodDesc{
+var SignalService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "message.SignalService",
+	HandlerType: (*SignalServiceServer)(nil),
+	Methods:     []grpc.MethodDesc{},
+	Streams: []grpc.StreamDesc{
 		{
-			MethodName: "RequestPod",
-			Handler:    _PodPlacement_RequestPod_Handler,
+			StreamName:    "StreamSignals",
+			Handler:       _SignalService_StreamSignals_Handler,
+			ClientStreams: true,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
 	Metadata: "src/message/message.proto",
 }
 

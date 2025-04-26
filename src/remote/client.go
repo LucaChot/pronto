@@ -42,13 +42,21 @@ func (rmt *RemoteScheduler) connectToPl(ctlAddr net.IP) {
 		}).Fatal("Could not connect to controller")
 	}
 
-	rmt.ctlPlStub = pb.NewPodPlacementClient(conn)
+	rmt.ctlSignalStub = pb.NewSignalServiceClient(conn)
+	for {
+        rmt.signalStream, err= rmt.ctlSignalStub.StreamSignals(context.Background())
+		if err != nil {
+            log.Error(err)
+			time.Sleep(time.Second)
+		} else {
+			break
+		}
+	}
 
 }
 
 func (rmt *RemoteScheduler) RequestPod(signal float64) {
-    ctx := context.Background()
-    rmt.ctlPlStub.RequestPod(ctx, &pb.PodRequest{
+    rmt.signalStream.Send(&pb.Signal{
         Node:   rmt.onNode.Name,
         Signal: signal,
     })

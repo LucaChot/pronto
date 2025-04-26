@@ -38,7 +38,7 @@ type CentralScheduler struct {
     bindQueue   chan *podBind
     retryQueue  chan *v1.Pod
 
-    pb.UnimplementedPodPlacementServer
+    pb.UnimplementedSignalServiceServer
 }
 
 type Option func(*CentralScheduler)

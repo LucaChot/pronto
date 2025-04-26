@@ -29,7 +29,9 @@ type RemoteScheduler struct {
     fp *fpca.FPCAAgent
 
     clientset   *kubernetes.Clientset
-    ctlPlStub  pb.PodPlacementClient
+    ctlSignalStub  pb.SignalServiceClient
+    signalStream    pb.SignalService_StreamSignalsClient
+
 }
 
 func (rmt *RemoteScheduler) SetClientset() {
