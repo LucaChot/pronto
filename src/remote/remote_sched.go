@@ -158,7 +158,7 @@ func (rmt *RemoteScheduler) JobSignal() (float64, error) {
 TODO: Implement error handling
 */
 func (rmt *RemoteScheduler) Schedule() {
-    ticker := time.NewTicker(time.Millisecond)
+    ticker := time.NewTicker(time.Second)
     defer ticker.Stop()
     for {
         <-ticker.C

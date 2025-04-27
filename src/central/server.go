@@ -1,12 +1,13 @@
 package central
 
 import (
+	"context"
 	"io"
+	"log"
 	"math"
 	"net"
 
 	pb "github.com/LucaChot/pronto/src/message"
-	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -14,27 +15,28 @@ import (
 
 
 
-func (ctl *CentralScheduler) startPlacementServer() {
+func (ctl *CentralScheduler) startPlacementServer(ctx context.Context) {
     lis, err := net.Listen("tcp", ":50051")
 	if err != nil {
-		log.WithFields(log.Fields{
-			"error": err,
-		}).Fatalf("failed to serve start server")
+        log.Fatalf("(grpc) failed to start server %s", err)
 	}
 
 	s := grpc.NewServer()
     pb.RegisterSignalServiceServer(s, ctl)
 
-	log.WithFields(log.Fields{
-		"ADDRESS": lis.Addr(),
-	}).Debug("STARTED PLACEMENT SERVER")
+    log.Printf("(grpc) started server on %s", lis.Addr().String())
 
 	go func() {
 		if err := s.Serve(lis); err != nil {
-			log.WithFields(log.Fields{
-				"error": err,
-			}).Fatalf("failed to serve start server")
+            log.Fatalf("(grpc) failed to serve clients %s", err)
 		}
+	}()
+
+	go func() {
+        <-ctx.Done()
+        log.Print("(grpc) shutting down gRPC server")
+        s.GracefulStop()
+        log.Print("(grpc) server shutdown complete")
 	}()
 }
 
@@ -60,7 +62,7 @@ func (ctl *CentralScheduler) StreamSignals(stream pb.SignalService_StreamSignals
             node = m.GetNode()
         }
         index := ctl.nodeMap[node]
-        ctl.nodeSignals[index].Store(math.Float64bits(m.GetSignal()))
+        ctl.nodes[index].UpdateWillingness(m.Signal)
     }
 }
 

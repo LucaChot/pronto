@@ -16,12 +16,12 @@ type podBind struct {
 }
 
 /* Binds Pod p to Node n */
-func (ctl *CentralScheduler) startBindPodWorkers(n int) {
+func (ctl *CentralScheduler) startBindPodWorkers(ctx context.Context, n int) {
     ctl.bindQueue = make(chan *podBind, 2 * n)
     ctl.retryQueue = make(chan *v1.Pod, 4 * n)
 
     for range n {
-        go ctl.bindPodWorker()
+        go ctl.bindPodWorker(ctx)
     }
 }
 
@@ -93,7 +93,7 @@ func (bd *BindInfo) withBind(pod *v1.Pod, node string) {
 TODO: Look into making this loop less brittle, e.g. have goroutines work on
 separate pointers
 */
-func (ctl * CentralScheduler) bindPodWorker() {
+func (ctl * CentralScheduler) bindPodWorker(ctx context.Context) {
     bd := NewBindInfo()
     bd.withReportingController(ctl.name)
     bd.withReportingInstance(fmt.Sprintf("%s-dev-k8s-lc869-00", ctl.name))
@@ -101,94 +101,100 @@ func (ctl * CentralScheduler) bindPodWorker() {
     bindResult  := make(chan error, 1)
     eventResult := make(chan *v1.Event, 1)
 
-    for item := range ctl.bindQueue {
-        pod := item.pod
-        node := item.node
-        log.Printf("%s <-bind", pod.Name)
-        bd.Reset()
-        bd.withBind(pod, node)
+    for {
+        select {
+        case <-ctx.Done():
+            log.Print("(bind) received shutdown signal")
+            return
+        case item := <-ctl.bindQueue:
+            pod := item.pod
+            node := item.node
+            log.Printf("%s <-bind", pod.Name)
+            bd.Reset()
+            bd.withBind(pod, node)
 
-        ctx, cancel := context.WithCancel(context.Background())
-        // 3) Start event‑creation loop (infinite backoff until success or cancel)
-        go func() {
-            backoff := time.Second
-            limit := time.Minute / 2
-            for {
-                select {
-                case <-ctx.Done():
-                    eventResult <- nil  // non‑nil
-                    return
-                default:
-                }
-
-                evt, err := ctl.clientset.CoreV1().
-                    Events(pod.Namespace).
-                    Create(ctx, bd.event, *bd.createOpt)
-                if err == nil {
-                    eventResult <- evt       // success!
-                    return
-                }
-
-                time.Sleep(backoff)
-                backoff *= 2
-                if backoff > limit {
-                    backoff = limit
-                }
-            }
-        }()
-
-        // 4) Start bind‑with‑max‑3‑tries loop
-        go func() {
-            backoff := time.Second
-            var err error
-            for range 3 {
-                err = ctl.clientset.CoreV1().
-                    Pods(pod.Namespace).
-                    Bind(context.TODO(), bd.bind, *bd.createOpt)
-                if err == nil {
-                    break
-                }
-                time.Sleep(backoff)
-                backoff *= 2
-            }
-            bindResult <- err
-        }()
-
-        var bindErr error
-        bindErr = <-bindResult
-        if bindErr != nil {
-            // Bind gave up after 3 tries: stop event attempts
-            cancel()
-            eventErr := <-eventResult
-
-            // If event did ever succeed, delete it
-            if eventErr != nil {
-                // retry deletion forever (or until you want a limit)
+            ctx, cancel := context.WithCancel(context.Background())
+            // 3) Start event‑creation loop (infinite backoff until success or cancel)
+            go func() {
                 backoff := time.Second
                 limit := time.Minute / 2
                 for {
-                    if err := ctl.clientset.CoreV1().
-                        Events(pod.Namespace).
-                        Delete(context.TODO(), eventErr.Name, *bd.deleteOpt); err == nil {
-                        break
+                    select {
+                    case <-ctx.Done():
+                        eventResult <- nil  // non‑nil
+                        return
+                    default:
                     }
+
+                    evt, err := ctl.clientset.CoreV1().
+                        Events(pod.Namespace).
+                        Create(ctx, bd.event, *bd.createOpt)
+                    if err == nil {
+                        eventResult <- evt       // success!
+                        return
+                    }
+
                     time.Sleep(backoff)
                     backoff *= 2
                     if backoff > limit {
                         backoff = limit
                     }
                 }
+            }()
+
+            // 4) Start bind‑with‑max‑3‑tries loop
+            go func() {
+                backoff := time.Second
+                var err error
+                for range 3 {
+                    err = ctl.clientset.CoreV1().
+                        Pods(pod.Namespace).
+                        Bind(context.TODO(), bd.bind, *bd.createOpt)
+                    if err == nil {
+                        break
+                    }
+                    time.Sleep(backoff)
+                    backoff *= 2
+                }
+                bindResult <- err
+            }()
+
+            var bindErr error
+            bindErr = <-bindResult
+            if bindErr != nil {
+                // Bind gave up after 3 tries: stop event attempts
+                cancel()
+                eventErr := <-eventResult
+
+                // If event did ever succeed, delete it
+                if eventErr != nil {
+                    // retry deletion forever (or until you want a limit)
+                    backoff := time.Second
+                    limit := time.Minute / 2
+                    for {
+                        if err := ctl.clientset.CoreV1().
+                            Events(pod.Namespace).
+                            Delete(context.TODO(), eventErr.Name, *bd.deleteOpt); err == nil {
+                            break
+                        }
+                        time.Sleep(backoff)
+                        backoff *= 2
+                        if backoff > limit {
+                            backoff = limit
+                        }
+                    }
+                }
+
+                // now requeue this pod for a later bind attempt
+                log.Printf("retry <-%s", pod.Name)
+                ctl.retryQueue <- pod
+                continue
             }
 
-            // now requeue this pod for a later bind attempt
-            log.Printf("retry <-%s", pod.Name)
-            ctl.retryQueue <- pod
-            continue
+            <-eventResult
+            cancel()
+            log.Printf("BIND: successfully bound %s", pod.Name)
         }
-
-        <-eventResult
-        cancel()
-        log.Printf("BIND: successfully bound %s", pod.Name)
     }
 }
 
