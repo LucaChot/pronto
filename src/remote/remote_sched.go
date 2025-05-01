@@ -2,172 +2,107 @@ package remote
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"math"
+	"log"
 	"os"
-	"time"
 
-	log "github.com/sirupsen/logrus"
-	"gonum.org/v1/gonum/mat"
-
-	"github.com/LucaChot/pronto/src/fpca"
-	pb "github.com/LucaChot/pronto/src/message"
-	"github.com/LucaChot/pronto/src/metrics"
-
-	v1 "k8s.io/api/core/v1"
+	"github.com/LucaChot/pronto/src/remote/fpca"
+	"github.com/LucaChot/pronto/src/remote/metrics"
+	"github.com/LucaChot/pronto/src/remote/cache"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
+	clientset "k8s.io/client-go/kubernetes"
 )
 
 type RemoteScheduler struct {
-    hostname string
-    onNode *v1.Node
+    podName     string
+    nodeName    string
 
     mc *metrics.MetricsCollector
     fp *fpca.FPCAAgent
 
-    clientset   *kubernetes.Clientset
-    ctlSignalStub  pb.SignalServiceClient
-    signalStream    pb.SignalService_StreamSignalsClient
+    cache       *cache.Cache
+    costPerPod  *CostPerPodState
+
+    client   clientset.Interface
+    // Close this to shut down the scheduler.
+	StopEverything <-chan struct{}
 
 }
 
-func (rmt *RemoteScheduler) SetClientset() {
-	config, err := rest.InClusterConfig()
-	if err != nil {
-		log.WithFields(log.Fields{
-			"ERROR": err,
-		}).Error("CONFIG ERROR")
-	}
 
-	clientset, err := kubernetes.NewForConfig(config)
-	rmt.clientset = clientset
+func GetKernelHostName() (string) {
+    n, err :=  os.Hostname()
+    if err != nil {
+        log.Printf("unable to get hostname from kernel")
+        return ""
+    }
+    return n
 }
 
-func (rmt *RemoteScheduler) SetHostname() {
-	hostname, err := os.Hostname()
-	if err != nil {
-		log.WithFields(log.Fields{
-			"ERROR": err,
-		}).Error("HOSTNAME ERROR")
-	}
-    rmt.hostname = hostname;
+func GetHostNodeEnvironment() (string) {
+    return os.Getenv("NODE_NAME")
 }
 
-func (rmt *RemoteScheduler) SetOnNode() {
-    pods, err := rmt.clientset.CoreV1().Pods("basic-sched").List(context.TODO(), metav1.ListOptions{
-		FieldSelector: fmt.Sprintf("metadata.name=%s", rmt.hostname),
-	})
-	if err != nil {
-		log.WithFields(log.Fields{
-			"ERROR": err,
-		}).Error("LOCATING POD ERROR")
-	}
-
-	n, err := rmt.clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("%s=%s", "kubernetes.io/hostname", pods.Items[0].Spec.NodeName),
-	})
-	if err != nil {
-		log.WithFields(log.Fields{
-			"ERROR": err,
-		}).Error("LOCATING NODE ERROR")
-	}
-
-    rmt.onNode = &n.Items[0]
+type remoteOptions struct {
+    podName                             string
+    nodeName                            string
+    namespace                           string
 }
 
-/* Creates a new CentralScheduler */
-func New() *RemoteScheduler {
+// Option configures a Scheduler
+type Option func(*remoteOptions)
 
-    /* Initialise scheduler values */
-    rmt := &RemoteScheduler{}
+func WithNamespace(namespace string) Option {
+	return func(o *remoteOptions) {
+		o.namespace = namespace
+	}
+}
+
+var defaultRemoteOptions = remoteOptions{
+    podName: GetKernelHostName(),
+    nodeName: GetHostNodeEnvironment(),
+    namespace: metav1.NamespaceAll,
+}
+
+
+
+// New returns a Scheduler
+func New(ctx context.Context,
+	client clientset.Interface,
+	opts ...Option) (*RemoteScheduler, error) {
+
+	stopEverything := ctx.Done()
+
+	options := defaultRemoteOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 
     /* Run metrics collection */
-    var sender <-chan *mat.Dense
-    rmt.mc, sender = metrics.New()
-    log.Debug("RMT: INITIALISE METRIC COLLECTOR")
+    mc, sender := metrics.New()
 
     /* Run fpca */
-    rmt.fp = fpca.New(sender)
-    log.Debug("RMT: INITIALISE FPCA")
+    fp := fpca.New(sender)
 
+    c := cache.New(
+        cache.WithClientSet(client),
+        cache.WithNamespace(options.namespace),
+        cache.WithNodeName(options.nodeName),
+        cache.WithStopEverything(stopEverything))
 
-    /* Set the remote scheduler variables */
-    rmt.SetClientset()
-    rmt.SetHostname()
-    rmt.SetOnNode()
-    rmt.AsClient()
+    cpp := NewCostPerPodState()
 
-    log.Debug("RMT: FINISHED INITIALISATION")
-	return rmt
-}
-
-/*
-TODO: Look at including information such as variance to determine the threshold
-*/
-func (rmt *RemoteScheduler) JobSignal() (float64, error) {
-    yPtr := rmt.mc.Y.Load()
-    if yPtr == nil {
-        return 0.0, errors.New("y vector is not available")
+    rmt := &RemoteScheduler{
+        podName:        options.podName,
+        nodeName:       options.nodeName,
+        mc:             mc,
+        fp:             fp,
+        cache:          c,
+        costPerPod:     cpp,
+        client:         client,
+        StopEverything: stopEverything,
     }
 
-    sumProbUPtr := rmt.fp.SumProbU.Load()
-    if sumProbUPtr == nil {
-        return 0.0, errors.New("sumProbU matrix is not available")
-    }
+	return rmt, nil
 
-    y := *yPtr
-    sumProbU := *sumProbUPtr
-
-    // 1. Check if any y[i] is already >= 1
-	for _, yi := range y {
-		if yi >= 0.95 {
-			return 0.0, nil
-		}
-	}
-
-    kMin := math.Inf(1)
-	found := false
-	for i, ui := range sumProbU {
-		if ui > 0 {
-			cand := (1.0 - y[i]) / ui
-			if cand < kMin {
-				kMin = cand
-			}
-			found = true
-		}
-	}
-
-	// 3. If no positive slope found, never reaches 1
-	if !found {
-		return math.Inf(1), nil
-	}
-
-	// 4. Clamp at zero
-	if kMin < 0 {
-		return 0.0, nil
-	}
-
-	return kMin, nil
-}
-
-/* Core Scheduling loop */
-/*
-TODO: Implement error handling
-*/
-func (rmt *RemoteScheduler) Schedule() {
-    ticker := time.NewTicker(time.Second)
-    defer ticker.Stop()
-    for {
-        <-ticker.C
-
-        signal, err := rmt.JobSignal()
-        if err != nil {
-            log.WithError(err)
-        }
-        rmt.RequestPod(signal)
-	}
 }
 

@@ -1,4 +1,4 @@
-package central
+package scheduler
 
 import (
 	"context"
@@ -16,7 +16,7 @@ type podBind struct {
 }
 
 /* Binds Pod p to Node n */
-func (ctl *CentralScheduler) startBindPodWorkers(ctx context.Context, n int) {
+func (ctl *Scheduler) startBindPodWorkers(ctx context.Context, n int) {
     ctl.bindQueue = make(chan *podBind, 2 * n)
     ctl.retryQueue = make(chan *v1.Pod, 4 * n)
 
@@ -93,7 +93,7 @@ func (bd *BindInfo) withBind(pod *v1.Pod, node string) {
 TODO: Look into making this loop less brittle, e.g. have goroutines work on
 separate pointers
 */
-func (ctl * CentralScheduler) bindPodWorker(ctx context.Context) {
+func (ctl * Scheduler) bindPodWorker(ctx context.Context) {
     bd := NewBindInfo()
     bd.withReportingController(ctl.name)
     bd.withReportingInstance(fmt.Sprintf("%s-dev-k8s-lc869-00", ctl.name))

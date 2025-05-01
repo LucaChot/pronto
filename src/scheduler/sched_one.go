@@ -1,4 +1,4 @@
-package central
+package scheduler
 
 import (
 	"errors"
@@ -66,15 +66,11 @@ func (n *Node) GetWeight() float64 {
     return math.Float64frombits(n.weight.Load())
 }
 
-// Scheduler holds the list of nodes and provides pod allocation.
-type Scheduler struct {
-}
-
 // SchedulePod selects a node for the next pod using:
 // 1) Power-of-two sampling with weighted probabilities (smoothed willingness)
 // 2) Burst-aware token bucket throttling
 // Returns the chosen node or an error if no node is available.
-func (ctl *CentralScheduler) SchedulePod() (*Node, error) {
+func (ctl *Scheduler) SchedulePod() (*Node, error) {
     now := time.Now()
 
     // Compute total weight

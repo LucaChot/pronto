@@ -1,4 +1,4 @@
-package central
+package scheduler
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 
 
 
-func (ctl *CentralScheduler) startPlacementServer(ctx context.Context) {
+func (ctl *Scheduler) startPlacementServer(ctx context.Context) {
     lis, err := net.Listen("tcp", ":50051")
 	if err != nil {
         log.Fatalf("(grpc) failed to start server %s", err)
@@ -40,7 +40,7 @@ func (ctl *CentralScheduler) startPlacementServer(ctx context.Context) {
 	}()
 }
 
-func (ctl *CentralScheduler) StreamSignals(stream pb.SignalService_StreamSignalsServer) error {
+func (ctl *Scheduler) StreamSignals(stream pb.SignalService_StreamSignalsServer) error {
     var m pb.Signal
     var node string
     for {

@@ -4,7 +4,7 @@ import (
 	"math"
 	"sync/atomic"
 
-	mt "github.com/LucaChot/pronto/src/matrix"
+	mt "github.com/LucaChot/pronto/src/remote/matrix"
 	pb "github.com/LucaChot/pronto/src/message"
 	log "github.com/sirupsen/logrus"
 	"gonum.org/v1/gonum/mat"

@@ -1,4 +1,4 @@
-package central
+package scheduler
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 )
 
-func (ctl *CentralScheduler) findNodes() error {
+func (ctl *Scheduler) findNodes() error {
 	// TODO add informer to get the list of nodeList
 	nodeList, err := ctl.clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("%s!=%s", "node-role.kubernetes.io/control-plane", ""),
@@ -40,7 +40,7 @@ func (ctl *CentralScheduler) findNodes() error {
     return nil
 }
 
-func (ctl *CentralScheduler) startWatchHandler(ctx context.Context) {
+func (ctl *Scheduler) startWatchHandler(ctx context.Context) {
     ctl.watchQueue = make(chan *v1.Pod, 100)
     go func() {
         for {
