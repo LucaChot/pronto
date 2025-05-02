@@ -30,7 +30,7 @@ import (
 	"gonum.org/v1/gonum/mat"
 
 	log "github.com/sirupsen/logrus"
-    mt "github.com/LucaChot/pronto/src/matrix"
+    mt "github.com/LucaChot/pronto/src/remote/matrix"
 	pb "github.com/LucaChot/pronto/src/message"
 )
 

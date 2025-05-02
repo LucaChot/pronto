@@ -83,11 +83,15 @@ func New(ctx context.Context,
     /* Run fpca */
     fp := fpca.New(sender)
 
-    c := cache.New(
-        cache.WithClientSet(client),
-        cache.WithNamespace(options.namespace),
-        cache.WithNodeName(options.nodeName),
-        cache.WithStopEverything(stopEverything))
+    //ai := cache.NewApiInformer(
+        //cache.WithClientSet(client),
+        //cache.WithNamespace(options.namespace),
+        //cache.WithNodeName(options.nodeName),
+        //cache.WithStopEverything(stopEverything))
+
+    ci := cache.NewContainerInformer()
+
+    c := cache.New(ci)
 
     cpp := NewCostPerPodState()
 

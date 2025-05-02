@@ -13,9 +13,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 )
 
+const epsilon = 1e-3
+
 type CostPerPodState struct {
-    filter          *kalman.KalmanFilter
+    filter          *kalman.KalmanFilter2D
     lastSignal      float64
+    lastBeta        float64
     lastPodCount    int
 }
 
@@ -72,14 +75,24 @@ func NewCostPerPodState(opts ...CostPerPodOption) *CostPerPodState{
 		opt(&options)
 	}
 
-    k := kalman.NewKalmanFilter(
-        options.initialMu,
-        options.initialP,
-        options.Q,
-        options.R)
+    //kf := kalman.NewKalmanFilter1D(
+        //options.initialMu,
+        //options.initialP,
+        //options.Q,
+        //options.R)
+
+    // initial guess: β=0.1, γ=1.0
+    initB := [2]float64{0, -0.1}
+    // initial uncertainty
+    initP := [2][2]float64{{0,0},{0,1e3}}
+    // small process noise
+    Q  := [2][2]float64{{0,0},{0,1e-2}}
+    // measurement noise
+    R  := 1e-1
+    kf := kalman.NewKalmanFilter2D(initB, initP, Q, R)
 
     cpp := &CostPerPodState{
-        filter:     k,
+        filter:     kf,
         lastSignal: options.startSignal,
         lastPodCount: options.startPodCount,
     }
@@ -87,24 +100,64 @@ func NewCostPerPodState(opts ...CostPerPodOption) *CostPerPodState{
     return cpp
 }
 
-func (cpp *CostPerPodState) UpdatePodCost(signal float64, podCount int) {
-    deltaPods   := podCount - cpp.lastPodCount           // m_k
-    if deltaPods == 0 {
-        return
-    }
-    if cpp.lastSignal == 0 && signal == 0 {
-        return
+func (cpp *CostPerPodState) UpdatePodCost1D(signal float64, podCount int) {
+    // 1) compute how many new pods arrived
+    deltaPods := podCount - cpp.lastPodCount
+
+    // 2) decide whether to update β (per-pod cost)
+    //    only if
+    //      a) there's been at least one new pod
+    //      b) the node had some headroom before (lastSignal > ε)
+    if deltaPods != 0 && cpp.lastSignal > epsilon {
+        // feed the filter the NEW (s, p) pair
+        // internally this does predict+update on [β,γ]
+        cpp.filter.Update(signal, float64(podCount))
+    } else {
+        // otherwise just update γ (the baseline) by doing
+        // a “measurement” step with deltaPods = 0
+        // that still corrects γ to your current signal.
+        cpp.filter.Update(signal, float64(podCount))
+        // then immediately clamp β back to its last value
+        // so you don’t let the no-headroom step drift it downward
+        beta, gamma := cpp.filter.State()
+        cpp.filter.ForceState(math.Max(beta, cpp.lastBeta), gamma)
     }
 
-    observedDrop := cpp.lastSignal - signal              // z_k
-
-    if deltaPods != 0 {
-      cpp.filter.Predict()
-      cpp.filter.Update(deltaPods, observedDrop)
-    }
-    // update for next time
+    // 3) record for next time
     cpp.lastSignal   = signal
     cpp.lastPodCount = podCount
+    cpp.lastBeta, _  = cpp.filter.State()
+}
+
+func (cpp *CostPerPodState) UpdatePodCost2D(signal float64, podCount int) {
+    y := signal - cpp.lastSignal
+    u := podCount - cpp.lastPodCount
+    cpp.lastSignal = signal
+    cpp.lastPodCount = podCount
+
+    // Predict every interval
+    cpp.filter.Predict()
+
+    // Only update for pod-start events with positive drop
+    // Skip if no pods started or signal floor-limited
+    //if u <= 0 || 3 * y >= float64(u) * cpp.lastBeta {
+    if u <= 0 || y >= -epsilon {
+        return
+    }
+
+    // Optional: skip if measurement indicates no drop (censored)
+    if y >= 0 {
+        return
+    }
+
+    cpp.filter.Update(float64(u), y)
+    cost, _ := cpp.filter.State()
+    if cost > -0.08 {
+        cpp.filter.ForceState(0, -0.08)
+    }
+    if cost < -0.12 {
+        cpp.filter.ForceState(0, -0.12)
+    }
 }
 
 /*
@@ -176,12 +229,12 @@ func (rmt *RemoteScheduler) Start() {
             continue
         }
 
-        log.Printf("signal = %.4f", signal)
-        rmt.costPerPod.UpdatePodCost(signal, rmt.cache.GetPodCount())
-        cost, covariance := rmt.costPerPod.filter.State()
-        log.Printf("per-pod cost = %.4f ± %.4f\n", cost, math.Sqrt(covariance))
+        log.Printf("(generator) signal = %.4f", signal)
+        rmt.costPerPod.UpdatePodCost2D(signal, rmt.cache.GetPodCount())
+        cost, constant := rmt.costPerPod.filter.State()
+        log.Printf("(generator) per-pod cost = %.4f constant = %.4f\n", cost, constant)
 
-        patch := fmt.Sprintf(`{"metadata":{"annotations":{"pronto/signal":"%f","pronto/pod-cost" : "%f"}}}`, signal, cost)
+        patch := fmt.Sprintf(`{"metadata":{"annotations":{"pronto/signal":"%f","pronto/pod-cost" : "%f"}}}`, signal, math.Abs(cost))
 
         _, err = rmt.client.CoreV1().Nodes().Patch(ctx, rmt.nodeName, types.StrategicMergePatchType, []byte(patch), metav1.PatchOptions{})
         if err != nil {

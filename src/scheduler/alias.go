@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"errors"
-	"github.com/LucaChot/pronto/src/alias"
 )
 
 type CtlAliasTable struct {

@@ -32,11 +32,25 @@ spec:
       - command:
         - ./remote
         name: remote-sched
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
         resources:
           requests:
             cpu: 100m
         image: lucachot/remote-sched:latest
         imagePullPolicy: Always
+        volumeMounts:
+        - name: containerd-socket
+          mountPath: /run/containerd/containerd.sock
+          # this must be the exact same path you pass to containerd.New()
+      volumes:
+      - name: containerd-socket
+        hostPath:
+          path: /run/containerd/containerd.sock
+          type: Socket
       restartPolicy: Always
       imagePullSecrets:
       - name: regcred
