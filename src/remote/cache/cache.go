@@ -2,6 +2,8 @@ package cache
 
 import (
 	"sync"
+
+	clientset "k8s.io/client-go/kubernetes"
 )
 
 type Cache struct {
@@ -37,3 +39,14 @@ func New(informer Informer) *Cache {
     c.informer.Start()
     return c
 }
+
+type InformerOptions struct {
+    clientSet       clientset.Interface
+    nodeName        string
+    namespace       string
+    stopEverything  <-chan struct{}
+    socketPath      string
+    newInformer     func(opt ...InformerOption) Informer
+}
+
+type InformerOption func(*InformerOptions)

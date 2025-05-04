@@ -14,37 +14,11 @@ import (
 
 type ContainerInformer struct {
     onChange        func(count int)
-    socketPath      string
 }
 
-type ContainerInformerOptions struct {
-    socketPath      string
-}
-
-// Option configures a Scheduler
-type ContainerInformerOption func(*ContainerInformerOptions)
-
-// WithClientSet sets clientSet for the scheduling frameworkImpl.
-func WithSocketPath(socketPath string) ContainerInformerOption {
-	return func(o *ContainerInformerOptions) {
-		o.socketPath = socketPath
-	}
-}
-
-var defaultRemoteOptions = ContainerInformerOptions{
-    socketPath: "/run/containerd/containerd.sock",
-}
-
-func NewContainerInformer(opts ...ContainerInformerOption) *ContainerInformer {
-    options := ContainerInformerOptions{}
-	for _, opt := range opts {
-		opt(&options)
-	}
-
-
-    ci := &ContainerInformer{
-        socketPath: options.socketPath,
-    }
+func NewContainerInformer() Informer {
+    log.Print("created container informer")
+    ci := &ContainerInformer{}
 
     return ci
 }

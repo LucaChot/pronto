@@ -31,6 +31,7 @@ spec:
       containers:
       - command:
         - ./remote
+        - --kalman-config=/etc/kalman/config.yaml
         name: remote-sched
         env:
         - name: NODE_NAME
@@ -45,12 +46,17 @@ spec:
         volumeMounts:
         - name: containerd-socket
           mountPath: /run/containerd/containerd.sock
-          # this must be the exact same path you pass to containerd.New()
+        - name: kalman-config
+          mountPath: /etc/kalman/config.yaml
+          subPath: config.yaml
       volumes:
       - name: containerd-socket
         hostPath:
           path: /run/containerd/containerd.sock
           type: Socket
+      - name: kalman-config
+        configMap:
+          name: kalman-config-static
       restartPolicy: Always
       imagePullSecrets:
       - name: regcred

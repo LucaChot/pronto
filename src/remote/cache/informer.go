@@ -1,16 +1,18 @@
 package cache
 
 import (
+	"context"
 	"log"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 )
 
 type ApiInformer struct {
     onChange        func(count int)
-    stopEverything  <-chan struct{}
+    ctx             context.Context
     controller      cache.Controller
 }
 
@@ -57,59 +59,17 @@ func (ai *ApiInformer) DeletePod(obj interface{}) {
     }
 }
 
-type ApiInformerOptions struct {
-    clientSet       clientset.Interface
-    nodeName        string
-    namespace       string
-    stopEverything  <-chan struct{}
-}
-
-// ApiInformerOption configures a Scheduler
-type ApiInformerOption func(*ApiInformerOptions)
-
-// WithClientSet sets clientSet for the scheduling frameworkImpl.
-func WithClientSet(clientSet clientset.Interface) ApiInformerOption {
-	return func(o *ApiInformerOptions) {
-		o.clientSet = clientSet
-	}
-}
-
-// WithClientSet sets clientSet for the scheduling frameworkImpl.
-func WithNodeName(nodeName string) ApiInformerOption {
-	return func(o *ApiInformerOptions) {
-		o.nodeName = nodeName
-	}
-}
-
-// WithClientSet sets clientSet for the scheduling frameworkImpl.
-func WithNamespace(namespace string) ApiInformerOption {
-	return func(o *ApiInformerOptions) {
-		o.namespace = namespace
-	}
-}
-
-// WithClientSet sets clientSet for the scheduling frameworkImpl.
-func WithStopEverything(stopEverything <-chan struct{}) ApiInformerOption {
-	return func(o *ApiInformerOptions) {
-		o.stopEverything = stopEverything
-	}
-}
-
-func NewApiInformer(opts ...ApiInformerOption) *ApiInformer {
-    options := ApiInformerOptions{}
-	for _, opt := range opts {
-		opt(&options)
-	}
-
+func NewApiInformer(ctx context.Context, client kubernetes.Interface, nodeName string) Informer {
+    log.Print("created api informer")
     lw := cache.NewListWatchFromClient(
-        options.clientSet.CoreV1().RESTClient(),
+        client.CoreV1().RESTClient(),
         "pods",
-        options.namespace,
-        fields.OneTermEqualSelector("spec.nodeName", options.nodeName),
+        corev1.NamespaceAll,
+        fields.OneTermEqualSelector("spec.nodeName", nodeName),
     )
 
     ai := &ApiInformer{
-        stopEverything: options.stopEverything,
+        ctx:    ctx,
     }
 
     _, controller := cache.NewInformerWithOptions(cache.InformerOptions{
@@ -128,5 +88,5 @@ func NewApiInformer(opts ...ApiInformerOption) *ApiInformer {
 }
 
 func (ai *ApiInformer) Start() {
-    go ai.controller.Run(ai.stopEverything)
+    go ai.controller.Run(ai.ctx.Done())
 }

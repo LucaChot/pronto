@@ -1,5 +1,7 @@
 package kalman
 
+import "errors"
+
 // KalmanFilter implements a 1-D Kalman filter to estimate the average signal drop per pod.
 // It treats each scheduling event's impact as noise and learns a mean drop that adapts over time.
 // Usage:
@@ -12,7 +14,7 @@ package kalman
 
 type KalmanFilter2D struct {
     // state vector [β, γ]
-    B [2]float64
+    X [2]float64
     // covariance P
     P [2][2]float64
     // process noise Q
@@ -26,13 +28,26 @@ type KalmanFilter2D struct {
 // initialP: starting covariance (e.g. 1.0)
 // Q: process noise covariance (higher = more agility)
 // R: measurement noise covariance (higher = trust measurements less)
-func NewKalmanFilter2D(initB [2]float64, initP, Q [2][2]float64, R float64) *KalmanFilter2D {
+func NewKalmanFilter2D(initX, initP, Q []float64, R float64) (KalmanFilter, error) {
+    if len(initX) != 2 {
+        return nil, errors.New("initX must have length 1")
+    }
+    if len(initP) != 4 {
+        return nil, errors.New("initP must have length 1")
+    }
+    if len(Q) != 4 {
+        return nil, errors.New("initQ must have length 1")
+    }
 	return &KalmanFilter2D{
-		B:   initB,
-		P:   initP,
-		Q:   Q,
+        X:   [2]float64{initX[0], initX[1]},
+		P:   [2][2]float64{
+                {initP[0],initP[1]},
+                {initP[2],initP[3]}},
+		Q:   [2][2]float64{
+                {Q[0],Q[1]},
+                {Q[2],Q[3]}},
 		R:   R,
-	}
+	},nil
 }
 
 // Predict advances the filter state (time update).
@@ -57,12 +72,12 @@ func (kf *KalmanFilter2D) Update(u, y float64) {
 	K1 := (kf.P[1][0] + kf.P[1][1]*u) / S
 
 	// Residual = y - (beta0 + beta1*u)
-	predY := kf.B[0] + kf.B[1]*u
+	predY := kf.X[0] + kf.X[1]*u
 	residual := y - predY
 
 	// Update state
-	kf.B[0] += K0 * residual
-	kf.B[1] += K1 * residual
+	kf.X[0] += K0 * residual
+	kf.X[1] += K1 * residual
 
 	// Update covariance: P = (I - K*H) * P
 	M00 := 1 - K0*1
@@ -79,11 +94,15 @@ func (kf *KalmanFilter2D) Update(u, y float64) {
 
 
 // State returns the current estimates β (per-pod cost) and γ (base headroom).
-func (kf *KalmanFilter2D) State() (beta, gamma float64) {
-    return kf.B[1], kf.B[0]
+func (kf *KalmanFilter2D) State() ([]float64) {
+    return kf.X[:]
 }
 
-func (kf *KalmanFilter2D) ForceState(beta, gamma float64) {
-    kf.B[0] = beta
-    kf.B[1] = gamma
+func (kf *KalmanFilter2D) ForceState(newX[]float64) (error) {
+    if len(newX) != 2 {
+        return errors.New("initX must have length 2")
+    }
+    kf.X[0] = newX[0]
+    kf.X[1] = newX[1]
+    return nil
 }
