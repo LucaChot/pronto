@@ -46,19 +46,25 @@ func GetNodeName() (string) {
 }
 
 type remoteOptions struct {
-    podName                             string
-    nodeName                            string
+    podName     string
+    nodeName    string
+    trigger     bool
 }
 
 // Option configures a Scheduler
 type Option func(*remoteOptions)
 
+func WithTrigger() Option {
+	return func(o *remoteOptions) {
+		o.trigger = true
+	}
+}
+
 var defaultRemoteOptions = remoteOptions{
     podName: GetPodName(),
     nodeName: GetNodeName(),
+    trigger: false,
 }
-
-
 
 // New returns a Scheduler
 func New(ctx context.Context,
@@ -91,6 +97,25 @@ func New(ctx context.Context,
         StopEverything: stopEverything,
     }
 
+    if options.trigger {
+        cache.SetSignal(func() {
+            ctx := context.Background()
+
+            signal, err := rmt.JobSignal()
+            if err != nil {
+                log.Printf("error generating signal: %s", err)
+            }
+
+            log.Printf("(cache) signal = %.4f", signal)
+            patch := fmt.Sprintf(`{"metadata":{"annotations":{"pronto/signal":"%f"}}`, signal)
+
+            _, err = rmt.client.CoreV1().Nodes().Patch(ctx, rmt.nodeName, types.StrategicMergePatchType, []byte(patch), metav1.PatchOptions{})
+            if err != nil {
+                log.Printf("Failed to patch node: %v", err)
+            }
+        })
+    }
+
 	return rmt, nil
 }
 
@@ -99,7 +124,7 @@ func New(ctx context.Context,
 TODO: Implement error handling
 */
 func (rmt *RemoteScheduler) Start() {
-    ticker := time.NewTicker(time.Second)
+    ticker := time.NewTicker(20 * time.Millisecond)
     defer ticker.Stop()
     for {
         <-ticker.C

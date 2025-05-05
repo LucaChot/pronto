@@ -5,7 +5,6 @@ go 1.24.0
 require (
 	github.com/containerd/containerd v1.7.27
 	github.com/containerd/containerd/api v1.8.0
-	github.com/containerd/typeurl/v2 v2.1.1
 	github.com/shirou/gopsutil/v4 v4.25.3
 	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/net v0.38.0
@@ -30,6 +29,7 @@ require (
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/containerd/platforms v0.2.1 // indirect
 	github.com/containerd/ttrpc v1.2.7 // indirect
+	github.com/containerd/typeurl/v2 v2.1.1 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/go-events v0.0.0-20190806004212-e31b211e4f1c // indirect

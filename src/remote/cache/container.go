@@ -3,20 +3,23 @@ package cache
 import (
 	"context"
 	"log"
-	"time"
+	//"time"
 
 	"github.com/containerd/containerd"
+    /*
 	eventsapi "github.com/containerd/containerd/api/events"
 	tasks "github.com/containerd/containerd/api/services/tasks/v1"
 	"github.com/containerd/containerd/namespaces"
 	typeurl "github.com/containerd/typeurl/v2"
+    */
+    eventsAPI "github.com/containerd/containerd/api/services/events/v1"
 )
 
 type ContainerInformer struct {
     onChange        func(count int)
 }
 
-func NewContainerInformer() Informer {
+func NewContainerInformer() PodCountInformer {
     log.Print("created container informer")
     ci := &ContainerInformer{}
 
@@ -31,6 +34,36 @@ func (ci *ContainerInformer) SetOnChange(onChange func(count int)) {
 func (ci *ContainerInformer) Start() {
     go ci.watchPodCount()
 }
+
+func (ci *ContainerInformer) watchPodCount() error {
+    client, err := containerd.New("/run/containerd/containerd.sock")
+    if err != nil {
+        log.Fatalf("failed to connect to containerd: %v", err)
+    }
+    defer client.Close()
+
+    // 2. Create the events client
+    eventsClient := eventsAPI.NewEventsClient(client.Conn())
+
+    // 3. Subscribe with no filters → get everything
+    ctx := context.Background()
+    stream, err := eventsClient.Subscribe(ctx, &eventsAPI.SubscribeRequest{})
+    if err != nil {
+        log.Fatalf("failed to subscribe to events: %v", err)
+    }
+    log.Println("Subscribed to containerd event stream")
+
+    // 4. Loop and log every event
+    for {
+        env, err := stream.Recv()
+        if err != nil {
+            log.Fatalf("error receiving event: %v", err)
+        }
+        log.Printf("(containerd) %s: [%s] Received event topic", env.Timestamp, env.Topic)
+    }
+}
+
+/*
 // watchPodCount connects to containerd, calculates an initial
 // count of unique pod UIDs running here, then keeps that count
 // up-to-date by listening to TaskStart and TaskExit events.
@@ -139,3 +172,4 @@ func (ci *ContainerInformer) watchPodCount() error {
         }
     }
 }
+*/

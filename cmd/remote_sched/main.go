@@ -77,7 +77,7 @@ func main() {
 		log.Fatalf("Failed to create k8s client: %v", err)
 	}
 
-    var informer cache.Informer
+    var informer cache.PodCountInformer
     switch informerType {
     case "static":
         informer = cache.NewStaticInformer()
@@ -141,7 +141,8 @@ func main() {
         ctx,
         clientset,
         cache,
-        cpp)
+        cpp,
+        remote.WithTrigger())
     if err != nil {
         log.Fatal(err)
     }

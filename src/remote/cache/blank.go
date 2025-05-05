@@ -4,7 +4,7 @@ import "log"
 
 type StaticInformer struct {}
 
-func NewStaticInformer() Informer {
+func NewStaticInformer() PodCountInformer {
     log.Print("created static informer")
     return &StaticInformer{}
 }

@@ -59,7 +59,7 @@ func (ai *ApiInformer) DeletePod(obj interface{}) {
     }
 }
 
-func NewApiInformer(ctx context.Context, client kubernetes.Interface, nodeName string) Informer {
+func NewApiInformer(ctx context.Context, client kubernetes.Interface, nodeName string) PodCountInformer {
     log.Print("created api informer")
     lw := cache.NewListWatchFromClient(
         client.CoreV1().RESTClient(),

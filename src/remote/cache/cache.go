@@ -2,18 +2,17 @@ package cache
 
 import (
 	"sync"
-
-	clientset "k8s.io/client-go/kubernetes"
 )
 
 type Cache struct {
     mu          sync.Mutex
     podsRunning int
-    informer    Informer
+    informer    PodCountInformer
+    signal      func()
 }
 
 
-type Informer interface {
+type PodCountInformer interface {
     Start()
     SetOnChange(func(count int))
 }
@@ -21,6 +20,7 @@ type Informer interface {
 func (c *Cache) UpdatedPodCount(count int) {
     c.mu.Lock()
     c.podsRunning += count
+    go c.signal()
     c.mu.Unlock()
 }
 
@@ -30,23 +30,20 @@ func (c *Cache) GetPodCount() int {
     return c.podsRunning
 }
 
-func New(informer Informer) *Cache {
+func (c *Cache) SetSignal(signal func()) {
+    c.mu.Lock()
+    c.signal = signal
+    c.mu.Unlock()
+}
+
+func New(informer PodCountInformer) *Cache {
+
     c := &Cache{
         informer: informer,
+        signal: func() {},
     }
 
     c.informer.SetOnChange(c.UpdatedPodCount)
     c.informer.Start()
     return c
 }
-
-type InformerOptions struct {
-    clientSet       clientset.Interface
-    nodeName        string
-    namespace       string
-    stopEverything  <-chan struct{}
-    socketPath      string
-    newInformer     func(opt ...InformerOption) Informer
-}
-
-type InformerOption func(*InformerOptions)
