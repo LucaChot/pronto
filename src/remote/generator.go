@@ -3,6 +3,7 @@ package remote
 import (
 	"log"
 	"math"
+	"sync"
 
 	"github.com/LucaChot/pronto/src/remote/kalman"
 )
@@ -10,6 +11,7 @@ import (
 const epsilon = 1e-3
 
 type CostPerPodState struct {
+    mu              sync.Mutex
     filter          kalman.KalmanFilter
     lastSignal      float64
     lastBeta        float64
@@ -18,8 +20,8 @@ type CostPerPodState struct {
     lowerBounds     float64
     upperBounds     float64
 
-    Update          func(podCount int, signal float64)
-    GetPodCost      func() float64
+    UpdateFunc          func(podCount int, signal float64)
+    GetCostFunc      func() float64
 }
 
 type KalmanStateOptions struct {
@@ -109,10 +111,10 @@ var defaultKalmanState = KalmanStateOptions{
     initSignal:     1.4,
     initPodCount:   0,
     setUpdate:      func(cpp *CostPerPodState) {
-                        cpp.Update = cpp.UpdateConst
+                        cpp.UpdateFunc = cpp.UpdateConst
                     },
     setGetPodCost:  func(cpp *CostPerPodState) {
-                        cpp.GetPodCost = cpp.GetPodCostConst
+                        cpp.GetCostFunc = cpp.GetPodCostConst
                     },
 }
 
@@ -148,34 +150,42 @@ func NewCostPerPodState(opts ...KalmanStateOption) *CostPerPodState{
     return cpp
 }
 
+func (cpp *CostPerPodState) Update(podDiff int, signalDiff float64) float64 {
+    cpp.mu.Lock()
+    defer cpp.mu.Unlock()
+    cpp.UpdateFunc(podDiff, signalDiff)
+    return cpp.GetCostFunc()
+}
+
+func (cpp *CostPerPodState) GetPodCost() float64 {
+    cpp.mu.Lock()
+    defer cpp.mu.Unlock()
+    return cpp.GetCostFunc()
+}
+
 func (cpp *CostPerPodState) UpdateConst(podCount int, signal float64, ) {}
 
 func (cpp *CostPerPodState) GetPodCostConst() float64 {
     return math.Abs(cpp.filter.State()[0])
 }
 
-func (cpp *CostPerPodState) UpdatePodCost1D(podCount int, signal float64) {
-    y := signal - cpp.lastSignal
-    u := podCount - cpp.lastPodCount
-    cpp.lastSignal = signal
-    cpp.lastPodCount = podCount
-
+func (cpp *CostPerPodState) UpdatePodCost1D(podDiff int, signalDiff float64) {
     // Predict every interval
     cpp.filter.Predict()
 
     // Only update for pod-start events with positive drop
     // Skip if no pods started or signal floor-limited
     //if u <= 0 || 3 * y >= float64(u) * cpp.lastBeta {
-    if u <= 0 || y >= -epsilon {
+    if podDiff <= 0 || signalDiff >= -epsilon {
         return
     }
 
     // Optional: skip if measurement indicates no drop (censored)
-    if y >= 0 {
+    if signalDiff >= 0 {
         return
     }
 
-    cpp.filter.Update(float64(u), y)
+    cpp.filter.Update(float64(podDiff), signalDiff)
     x := cpp.filter.State()
     if x[0] > cpp.lowerBounds {
         newX := [1]float64{cpp.lowerBounds}

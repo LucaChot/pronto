@@ -77,6 +77,7 @@ func main() {
 		log.Fatalf("Failed to create k8s client: %v", err)
 	}
 
+    /*
     var informer cache.PodCountInformer
     switch informerType {
     case "static":
@@ -89,8 +90,10 @@ func main() {
     case "containerd":
         informer = cache.NewContainerInformer()
     }
+    */
 
-    cache := cache.New(informer)
+    //cache := cache.New(informer)
+    cache := cache.NewEventCache(cache.NewContainerEventInformer())
 
 
     cppOptions := make([]remote.KalmanStateOption, 0)
@@ -99,18 +102,18 @@ func main() {
     case "const":
         cppOptions = append(cppOptions,
             remote.WithConstructor(kalman.NewConstant),
-            remote.WithUpdate(func(cpp *remote.CostPerPodState) {cpp.Update = cpp.UpdateConst}),
-            remote.WithGetPodCost(func(cpp *remote.CostPerPodState) {cpp.GetPodCost = cpp.GetPodCostConst}))
+            remote.WithUpdate(func(cpp *remote.CostPerPodState) {cpp.UpdateFunc = cpp.UpdateConst}),
+            remote.WithGetPodCost(func(cpp *remote.CostPerPodState) {cpp.GetCostFunc = cpp.GetPodCostConst}))
     case "kalman1d":
         cppOptions = append(cppOptions,
             remote.WithConstructor(kalman.NewKalmanFilter1D),
-            remote.WithUpdate(func(cpp *remote.CostPerPodState) {cpp.Update = cpp.UpdatePodCost1D}),
-            remote.WithGetPodCost(func(cpp *remote.CostPerPodState) {cpp.GetPodCost = cpp.GetPodCost1D}))
+            remote.WithUpdate(func(cpp *remote.CostPerPodState) {cpp.UpdateFunc = cpp.UpdatePodCost1D}),
+            remote.WithGetPodCost(func(cpp *remote.CostPerPodState) {cpp.GetCostFunc = cpp.GetPodCost1D}))
     case "kalman2d":
         cppOptions = append(cppOptions,
             remote.WithConstructor(kalman.NewKalmanFilter2D),
-            remote.WithUpdate(func(cpp *remote.CostPerPodState) {cpp.Update = cpp.UpdatePodCost2D}),
-            remote.WithGetPodCost(func(cpp *remote.CostPerPodState) {cpp.GetPodCost = cpp.GetPodCost2D}))
+            remote.WithUpdate(func(cpp *remote.CostPerPodState) {cpp.UpdateFunc = cpp.UpdatePodCost2D}),
+            remote.WithGetPodCost(func(cpp *remote.CostPerPodState) {cpp.GetCostFunc = cpp.GetPodCost2D}))
     }
 
     if kalmanConfig != "" {

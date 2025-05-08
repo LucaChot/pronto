@@ -22,7 +22,7 @@ type RemoteScheduler struct {
     mc *metrics.MetricsCollector
     fp *fpca.FPCAAgent
 
-    cache       *cache.Cache
+    cache       *cache.EventCache
     costPerPod  *CostPerPodState
 
     client   clientset.Interface
@@ -69,7 +69,7 @@ var defaultRemoteOptions = remoteOptions{
 // New returns a Scheduler
 func New(ctx context.Context,
 	client clientset.Interface,
-    cache   *cache.Cache,
+    cache   *cache.EventCache,
     cpp     *CostPerPodState,
 	opts ...Option) (*RemoteScheduler, error) {
 
@@ -98,22 +98,9 @@ func New(ctx context.Context,
     }
 
     if options.trigger {
-        cache.SetSignal(func() {
-            ctx := context.Background()
-
-            signal, err := rmt.JobSignal()
-            if err != nil {
-                log.Printf("error generating signal: %s", err)
-            }
-
-            log.Printf("(cache) signal = %.4f", signal)
-            patch := fmt.Sprintf(`{"metadata":{"annotations":{"pronto/signal":"%f"}}`, signal)
-
-            _, err = rmt.client.CoreV1().Nodes().Patch(ctx, rmt.nodeName, types.StrategicMergePatchType, []byte(patch), metav1.PatchOptions{})
-            if err != nil {
-                log.Printf("Failed to patch node: %v", err)
-            }
-        })
+        cache.SetSignal(rmt.JobSignal)
+        cache.SetUpdateCost(cpp.Update)
+        cache.SetPublish(rmt.publish)
     }
 
 	return rmt, nil
@@ -123,14 +110,34 @@ func New(ctx context.Context,
 /*
 TODO: Implement error handling
 */
+
+func (rmt *RemoteScheduler) publish(signal, cost float64) {
+    go func() {
+        ctx := context.Background()
+        patch := fmt.Sprintf(`{"metadata":{"annotations":{"pronto/signal":"%f","pronto/pod-cost" : "%f"}}}`, signal, cost)
+
+        _, err := rmt.client.CoreV1().Nodes().Patch(ctx, rmt.nodeName, types.StrategicMergePatchType, []byte(patch), metav1.PatchOptions{})
+        if err != nil {
+            log.Printf("Failed to patch node: %v", err)
+        }
+    }()
+}
+
+
 func (rmt *RemoteScheduler) Start() {
-    ticker := time.NewTicker(20 * time.Millisecond)
+    ticker := time.NewTicker(time.Second)
     defer ticker.Stop()
     for {
         <-ticker.C
-        log.Printf("running generation")
-
-        ctx := context.Background()
+        if rmt.cache.IsWaiting() {
+            signal := rmt.cache.GetLastSignal()
+            podDiff := rmt.cache.GetChangeInPodCount()
+            cost := rmt.costPerPod.GetPodCost()
+            log.Printf("(remote) signal = %.4f", signal - (cost * float64(podDiff)))
+            log.Printf("(remote) per-pod cost = %.4f", cost)
+            rmt.publish(signal - (cost * float64(podDiff)), cost)
+            continue
+        }
 
 
         signal, err := rmt.JobSignal()
@@ -138,19 +145,11 @@ func (rmt *RemoteScheduler) Start() {
             log.Printf("error generating signal: %s", err)
             continue
         }
-
-        log.Printf("(generator) signal = %.4f", signal)
-        rmt.costPerPod.Update(rmt.cache.GetPodCount(), signal)
+        log.Printf("(remote) signal = %.4f", signal)
         cost := rmt.costPerPod.GetPodCost()
-        log.Printf("(generator) per-pod cost = %.4f", cost)
+        log.Printf("(remote) per-pod cost = %.4f", cost)
+        rmt.publish(signal, cost)
 
-        patch := fmt.Sprintf(`{"metadata":{"annotations":{"pronto/signal":"%f","pronto/pod-cost" : "%f"}}}`, signal, cost)
-
-        _, err = rmt.client.CoreV1().Nodes().Patch(ctx, rmt.nodeName, types.StrategicMergePatchType, []byte(patch), metav1.PatchOptions{})
-        if err != nil {
-            log.Printf("Failed to patch node: %v", err)
-            continue
-        }
     }
 }
 

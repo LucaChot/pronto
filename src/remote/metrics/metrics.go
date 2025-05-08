@@ -37,7 +37,7 @@ func New() (*MetricsCollector, <-chan *mat.Dense) {
 TODO: Investigate difference between ticker and time.Sleep()
 */
 func (mc *MetricsCollector) Collect() {
-    ticker := time.NewTicker(10 * time.Millisecond)
+    ticker := time.NewTicker(100 * time.Millisecond)
     defer ticker.Stop()
     for {
         for i := range b {

@@ -14,7 +14,7 @@ import (
 )
 
 type ContainerEventInformer struct {
-    onEvent        func(name string)
+    onEvent        func(e Event)
 }
 
 func NewContainerEventInformer() EventInformer {
@@ -25,7 +25,7 @@ func NewContainerEventInformer() EventInformer {
 }
 
 
-func (ci *ContainerEventInformer) SetOnEvent(onEvent func(name string)) {
+func (ci *ContainerEventInformer) SetOnEvent(onEvent func(e Event)) {
     ci.onEvent = onEvent
 }
 
@@ -51,8 +51,10 @@ func (ci *ContainerEventInformer) watchEvents() error {
 
     // 2) SUBSCRIBE to all task events
     eventsCh, errsCh := client.EventService().Subscribe(ctx,
+    `topic=="/containers/create"`,
     `topic=="/tasks/start"`,
     `topic=="/tasks/exit"`,
+    `topic=="/tasks/delete"`,
     )
     log.Print("(container) received subscribe stream")
 
@@ -73,6 +75,22 @@ func (ci *ContainerEventInformer) watchEvents() error {
 
             // We’ll mutate podCounts and activePods under lock
             switch e := ev.(type) {
+            case *eventsapi.ContainerCreate:
+                //log.Print("(container) detected container start")
+                info, err := client.ContainerService().Get(ctx, e.ID)
+                if err != nil {
+                    log.Printf("ContainerCreate: container info: %v", err)
+                    break
+                }
+                if uid, ok := info.Labels["io.kubernetes.pod.uid"]; ok {
+                    ts := msg.Timestamp.Format(time.RFC3339Nano)
+                    log.Printf("(container) ContainerCreate: detected new container: %s", ts)
+                    ci.onEvent(Event{
+                        containerID: e.ID,
+                        podID: uid,
+                        topic: Create,
+                    })
+                }
             case *eventsapi.TaskStart:
                 //log.Print("(container) detected container start")
                 info, err := client.ContainerService().Get(ctx, e.ContainerID)
@@ -82,10 +100,13 @@ func (ci *ContainerEventInformer) watchEvents() error {
                 }
                 if uid, ok := info.Labels["io.kubernetes.pod.uid"]; ok {
                     ts := msg.Timestamp.Format(time.RFC3339Nano)
-                    log.Printf("(container) detected new pod: %s", ts)
-                    ci.onEvent(uid)
+                    log.Printf("(container) TaskStart: detected task start: %s", ts)
+                    ci.onEvent(Event{
+                        containerID: e.ContainerID,
+                        podID: uid,
+                        topic: Start,
+                    })
                 }
-
             case *eventsapi.TaskExit:
                 //log.Print("(container) detected container termination")
                 info, err := client.ContainerService().Get(ctx, e.ContainerID)
@@ -95,8 +116,28 @@ func (ci *ContainerEventInformer) watchEvents() error {
                 }
                 if uid, ok := info.Labels["io.kubernetes.pod.uid"]; ok {
                     ts := msg.Timestamp.Format(time.RFC3339Nano)
-                    log.Printf("(container) detected pod termination : %s", ts)
-                    ci.onEvent(uid)
+                    log.Printf("(container) TaskExit: detected task exit: %s", ts)
+                    ci.onEvent(Event{
+                        containerID: e.ContainerID,
+                        podID: uid,
+                        topic: Exit,
+                    })
+                }
+            case *eventsapi.TaskDelete:
+                //log.Print("(container) detected container termination")
+                info, err := client.ContainerService().Get(ctx, e.ContainerID)
+                if err != nil {
+                    log.Printf("TaskDelete: container info: %v", err)
+                    break
+                }
+                if uid, ok := info.Labels["io.kubernetes.pod.uid"]; ok {
+                    ts := msg.Timestamp.Format(time.RFC3339Nano)
+                    log.Printf("(container) TaskDelete: detected task delete: %s", ts)
+                    ci.onEvent(Event{
+                        containerID: e.ContainerID,
+                        podID: uid,
+                        topic: Delete,
+                    })
                 }
             }
         case err := <-errsCh:
