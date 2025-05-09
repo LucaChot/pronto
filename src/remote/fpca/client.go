@@ -79,7 +79,7 @@ func (fp *FPCAAgent) SendAggRequest(inM *mat.Dense) (*mat.Dense) {
         return nil
 	}
 
-    log.Debug("FPCA: COMPLETED AGGREGATION")
+    //log.Debug("FPCA: COMPLETED AGGREGATION")
     return mat.NewDense(int(outM.Rows), int(outM.Cols), outM.Data)
 }
 

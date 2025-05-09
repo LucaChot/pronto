@@ -9,8 +9,8 @@ import (
 TODO: Look at including information such as variance to determine the threshold
 */
 func (rmt *RemoteScheduler) JobSignal() (float64, error) {
-    yPtr := rmt.mc.Y.Load()
-    if yPtr == nil {
+    y, err := rmt.mc.GetY()
+    if err != nil {
         return 0.0, errors.New("y vector is not available")
     }
 
@@ -19,7 +19,6 @@ func (rmt *RemoteScheduler) JobSignal() (float64, error) {
         return 0.0, errors.New("sumProbU matrix is not available")
     }
 
-    y := *yPtr
     sumProbU := *sumProbUPtr
 
     // 1. Check if any y[i] is already >= 1

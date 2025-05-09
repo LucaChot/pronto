@@ -10,6 +10,7 @@ import (
 	"github.com/LucaChot/pronto/src/remote/cache"
 	"github.com/LucaChot/pronto/src/remote/fpca"
 	"github.com/LucaChot/pronto/src/remote/metrics"
+	"gonum.org/v1/gonum/mat"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	clientset "k8s.io/client-go/kubernetes"
@@ -22,7 +23,8 @@ type RemoteScheduler struct {
     mc *metrics.MetricsCollector
     fp *fpca.FPCAAgent
 
-    cache       *cache.EventCache
+    //cache       *cache.EventCache
+    cache       *cache.Cache
     costPerPod  *CostPerPodState
 
     client   clientset.Interface
@@ -69,7 +71,8 @@ var defaultRemoteOptions = remoteOptions{
 // New returns a Scheduler
 func New(ctx context.Context,
 	client clientset.Interface,
-    cache   *cache.EventCache,
+    cache   *cache.Cache,
+    //cache   *cache.EventCache,
     cpp     *CostPerPodState,
 	opts ...Option) (*RemoteScheduler, error) {
 
@@ -81,10 +84,18 @@ func New(ctx context.Context,
 	}
 
     /* Run metrics collection */
-    mc, sender := metrics.New()
+    pipe := make(chan *mat.Dense)
+    mc := metrics.New(pipe,
+        metrics.WithFilter(&metrics.DynEMA{
+            AlphaUpLow: 0.09,
+            AlphaDownLow: 0.0625,
+            AlphaUpHigh: 0.333,
+            AlphaDownHigh: 0.2,
+            NoiseWindow: 4,
+        }))
 
     /* Run fpca */
-    fp := fpca.New(sender)
+    fp := fpca.New(pipe)
 
     rmt := &RemoteScheduler{
         podName:        options.podName,
@@ -97,11 +108,11 @@ func New(ctx context.Context,
         StopEverything: stopEverything,
     }
 
-    if options.trigger {
-        cache.SetSignal(rmt.JobSignal)
-        cache.SetUpdateCost(cpp.Update)
-        cache.SetPublish(rmt.publish)
-    }
+    //if options.trigger {
+        //cache.SetSignal(rmt.JobSignal)
+        //cache.SetUpdateCost(cpp.Update)
+        //cache.SetPublish(rmt.publish)
+    //}
 
 	return rmt, nil
 }
@@ -126,30 +137,24 @@ func (rmt *RemoteScheduler) publish(signal, cost float64) {
 
 func (rmt *RemoteScheduler) Start() {
     ticker := time.NewTicker(time.Second)
+    lastPodCount := rmt.cache.GetPodCount()
+    lastSignal := 0.0
     defer ticker.Stop()
     for {
         <-ticker.C
-        if rmt.cache.IsWaiting() {
-            signal := rmt.cache.GetLastSignal()
-            podDiff := rmt.cache.GetChangeInPodCount()
-            cost := rmt.costPerPod.GetPodCost()
-            log.Printf("(remote) signal = %.4f", signal - (cost * float64(podDiff)))
-            log.Printf("(remote) per-pod cost = %.4f", cost)
-            rmt.publish(signal - (cost * float64(podDiff)), cost)
-            continue
-        }
-
-
         signal, err := rmt.JobSignal()
         if err != nil {
             log.Printf("error generating signal: %s", err)
             continue
         }
-        log.Printf("(remote) signal = %.4f", signal)
+        //log.Printf("(remote) signal = %.4f", signal)
+        currPodCount := rmt.cache.GetPodCount()
+        rmt.costPerPod.Update(currPodCount - lastPodCount, signal - lastSignal)
         cost := rmt.costPerPod.GetPodCost()
-        log.Printf("(remote) per-pod cost = %.4f", cost)
+        //log.Printf("(remote) per-pod cost = %.4f", cost)
         rmt.publish(signal, cost)
-
+        lastPodCount = currPodCount
+        lastSignal = signal
     }
 }
 

@@ -20,7 +20,7 @@ type EventCache struct {
     lastSignal          float64
 
     signal          func() (float64, error)
-    updateCost   func(podCountDiff int, signalDiff float64) float64
+    updateCost      func(podCountDiff int, signalDiff float64) float64
     publish         func(signal, podCost float64)
 
 

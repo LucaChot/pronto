@@ -6,13 +6,11 @@ import (
 	//"time"
 
 	"github.com/containerd/containerd"
-    /*
 	eventsapi "github.com/containerd/containerd/api/events"
 	tasks "github.com/containerd/containerd/api/services/tasks/v1"
 	"github.com/containerd/containerd/namespaces"
 	typeurl "github.com/containerd/typeurl/v2"
-    */
-    eventsAPI "github.com/containerd/containerd/api/services/events/v1"
+    ///eventsAPI "github.com/containerd/containerd/api/services/events/v1"
 )
 
 type ContainerInformer struct {
@@ -35,6 +33,7 @@ func (ci *ContainerInformer) Start() {
     go ci.watchPodCount()
 }
 
+/*
 func (ci *ContainerInformer) watchPodCount() error {
     client, err := containerd.New("/run/containerd/containerd.sock")
     if err != nil {
@@ -62,8 +61,9 @@ func (ci *ContainerInformer) watchPodCount() error {
         log.Printf("(containerd) %s: [%s] Received event topic", env.Timestamp, env.Topic)
     }
 }
+*/
 
-/*
+
 // watchPodCount connects to containerd, calculates an initial
 // count of unique pod UIDs running here, then keeps that count
 // up-to-date by listening to TaskStart and TaskExit events.
@@ -141,8 +141,8 @@ func (ci *ContainerInformer) watchPodCount() error {
                     prev := podCounts[uid]
                     podCounts[uid] = prev + 1
                     if prev == 0 {
-                        ts := msg.Timestamp.Format(time.RFC3339Nano)
-                        log.Printf("(container) detected new pod: %s", ts)
+                        //ts := msg.Timestamp.Format(time.RFC3339Nano)
+                        //log.Printf("(container) detected new pod: %s", ts)
                         ci.onChange(1)
                     }
                 }
@@ -157,8 +157,8 @@ func (ci *ContainerInformer) watchPodCount() error {
                 if uid, ok := info.Labels["io.kubernetes.pod.uid"]; ok {
                     cnt := podCounts[uid] - 1
                     if cnt <= 0 {
-                        ts := msg.Timestamp.Format(time.RFC3339Nano)
-                        log.Printf("(container) detected pod termination : %s", ts)
+                        //ts := msg.Timestamp.Format(time.RFC3339Nano)
+                        //log.Printf("(container) detected pod termination : %s", ts)
                         ci.onChange(-1)
                         delete(podCounts, uid)
                     } else {
@@ -172,4 +172,3 @@ func (ci *ContainerInformer) watchPodCount() error {
         }
     }
 }
-*/

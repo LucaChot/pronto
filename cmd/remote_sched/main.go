@@ -77,7 +77,7 @@ func main() {
 		log.Fatalf("Failed to create k8s client: %v", err)
 	}
 
-    /*
+
     var informer cache.PodCountInformer
     switch informerType {
     case "static":
@@ -90,10 +90,10 @@ func main() {
     case "containerd":
         informer = cache.NewContainerInformer()
     }
-    */
 
-    //cache := cache.New(informer)
-    cache := cache.NewEventCache(cache.NewContainerEventInformer())
+
+    cache := cache.New(informer)
+    //cache := cache.NewEventCache(cache.NewContainerEventInformer())
 
 
     cppOptions := make([]remote.KalmanStateOption, 0)
