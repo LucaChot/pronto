@@ -77,7 +77,7 @@ func main() {
 		log.Fatalf("Failed to create k8s client: %v", err)
 	}
 
-
+    /*
     var informer cache.PodCountInformer
     switch informerType {
     case "static":
@@ -90,10 +90,10 @@ func main() {
     case "containerd":
         informer = cache.NewContainerInformer()
     }
+    */
 
-
-    cache := cache.New(informer)
-    //cache := cache.NewEventCache(cache.NewContainerEventInformer())
+    //cache := cache.New(informer)
+    cache := cache.NewEventCache(cache.NewContainerEventInformer())
 
 
     cppOptions := make([]remote.KalmanStateOption, 0)
@@ -138,13 +138,18 @@ func main() {
         remote.WithLowerBounds(podCostLowerBound),
         remote.WithUpperBounds(podCostUpperBound))
 
-    cpp := remote.NewCostPerPodState(cppOptions...)
+    //cpp := remote.NewCostPerPodState(cppOptions...)
+
+    //cs := remote.NewCapacityState()
+    dfs :=  remote.NewDualFilterState()
 
 	rmt, err := remote.New(
         ctx,
         clientset,
         cache,
-        cpp,
+        //cpp,
+        //cs,
+        dfs,
         remote.WithTrigger())
     if err != nil {
         log.Fatal(err)

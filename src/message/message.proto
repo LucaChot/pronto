@@ -14,7 +14,7 @@
 
 syntax = "proto3";
 
-option go_package = "github.com/LucaChot/pronto/src/message";
+option go_package = "github.com/LucaChot/pronto-framework/message";
 
 
 package message;
@@ -22,6 +22,8 @@ package message;
 message Signal {
     string node = 1;
     double signal = 2;
+    double capacity = 3;
+    double overprovision = 4;
 }
 
 message SignalAck {}

@@ -2,7 +2,6 @@ package remote
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"time"
@@ -10,9 +9,8 @@ import (
 	"github.com/LucaChot/pronto/src/remote/cache"
 	"github.com/LucaChot/pronto/src/remote/fpca"
 	"github.com/LucaChot/pronto/src/remote/metrics"
+	"github.com/LucaChot/pronto/src/remote/types"
 	"gonum.org/v1/gonum/mat"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	clientset "k8s.io/client-go/kubernetes"
 )
 
@@ -23,14 +21,16 @@ type RemoteScheduler struct {
     mc *metrics.MetricsCollector
     fp *fpca.FPCAAgent
 
-    //cache       *cache.EventCache
-    cache       *cache.Cache
-    costPerPod  *CostPerPodState
+    cache       *cache.EventCache
+    //cache       *cache.Cache
+    //costPerPod  *CostPerPodState
+    //capacity    *CapacityState
+    capacity    *DualFilterState
 
     client   clientset.Interface
     // Close this to shut down the scheduler.
-	StopEverything <-chan struct{}
-
+	ctx         context.Context
+    Publisher
 }
 
 
@@ -71,12 +71,14 @@ var defaultRemoteOptions = remoteOptions{
 // New returns a Scheduler
 func New(ctx context.Context,
 	client clientset.Interface,
-    cache   *cache.Cache,
-    //cache   *cache.EventCache,
-    cpp     *CostPerPodState,
+    //cache   *cache.Cache,
+    cache   *cache.EventCache,
+    //cpp     *CostPerPodState,
+    //cs      *CapacityState,
+    dfs      *DualFilterState,
 	opts ...Option) (*RemoteScheduler, error) {
 
-	stopEverything := ctx.Done()
+//	stopEverything := ctx.Done()
 
 	options := defaultRemoteOptions
 	for _, opt := range opts {
@@ -103,16 +105,21 @@ func New(ctx context.Context,
         mc:             mc,
         fp:             fp,
         cache:          cache,
-        costPerPod:     cpp,
+        //costPerPod:     cpp,
+        capacity:       dfs,
         client:         client,
-        StopEverything: stopEverything,
+        ctx: ctx,
     }
 
-    //if options.trigger {
-        //cache.SetSignal(rmt.JobSignal)
-        //cache.SetUpdateCost(cpp.Update)
-        //cache.SetPublish(rmt.publish)
-    //}
+    if options.trigger {
+        cache.SetRemote(rmt)
+        cache.SetCapacity(dfs)
+        cache.SetPublisher(&rmt.Publisher)
+    }
+
+    cache.Start()
+
+    rmt.Publisher.SetUp(ctx, options.nodeName)
 
 	return rmt, nil
 }
@@ -121,40 +128,40 @@ func New(ctx context.Context,
 /*
 TODO: Implement error handling
 */
-
-func (rmt *RemoteScheduler) publish(signal, cost float64) {
-    go func() {
-        ctx := context.Background()
-        patch := fmt.Sprintf(`{"metadata":{"annotations":{"pronto/signal":"%f","pronto/pod-cost" : "%f"}}}`, signal, cost)
-
-        _, err := rmt.client.CoreV1().Nodes().Patch(ctx, rmt.nodeName, types.StrategicMergePatchType, []byte(patch), metav1.PatchOptions{})
-        if err != nil {
-            log.Printf("Failed to patch node: %v", err)
-        }
-    }()
-}
-
-
 func (rmt *RemoteScheduler) Start() {
     ticker := time.NewTicker(time.Second)
-    lastPodCount := rmt.cache.GetPodCount()
-    lastSignal := 0.0
+    //lastPodCount := rmt.cache.GetPodCount()
+    //lastSignal := 0.0
     defer ticker.Stop()
     for {
         <-ticker.C
-        signal, err := rmt.JobSignal()
+        signal, err := rmt.CalculateSignal()
         if err != nil {
             log.Printf("error generating signal: %s", err)
             continue
         }
         //log.Printf("(remote) signal = %.4f", signal)
-        currPodCount := rmt.cache.GetPodCount()
-        rmt.costPerPod.Update(currPodCount - lastPodCount, signal - lastSignal)
-        cost := rmt.costPerPod.GetPodCost()
+
+
+        if !rmt.cache.IsWaiting() {
+            podCount := rmt.cache.GetPodCount()
+            rmt.capacity.Update(podCount, signal)
+        }
+        //currPodCount := rmt.cache.GetPodCount()
+        //rmt.costPerPod.Update(currPodCount - lastPodCount, signal - lastSignal)
+        //cost := rmt.costPerPod.GetPodCost()
         //log.Printf("(remote) per-pod cost = %.4f", cost)
-        rmt.publish(signal, cost)
-        lastPodCount = currPodCount
-        lastSignal = signal
+        //lastPodCount = currPodCount
+        //lastSignal = signal
+        available := rmt.capacity.GetCapacityFromSignal(signal)
+        over := rmt.cache.GetOverProvision()
+
+
+        //log.Printf("(remote) available = %.4f", available)
+        rmt.Publish(
+            types.WithSignal(signal),
+            types.WithCapacity(available),
+            types.WithOverprovision(over))
     }
 }
 

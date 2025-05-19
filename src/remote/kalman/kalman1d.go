@@ -96,6 +96,8 @@ func (kf *KalmanFilter1D) ForceState(newX[]float64) (error) {
     return nil
 }
 
+func (kf *KalmanFilter1D) Revert() { }
+
 // Optional: Simple exponential moving average fallback if you choose not to do KF.
 // Uncomment and use in place of Update if desired.
 /*

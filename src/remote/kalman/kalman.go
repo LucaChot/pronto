@@ -16,6 +16,7 @@ type KalmanFilter interface {
     Update(u float64, y float64)
     State() []float64
     ForceState([]float64) (error)
+    Revert()
 }
 
 type KalmanConfig struct {

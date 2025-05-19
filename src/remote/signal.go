@@ -8,7 +8,7 @@ import (
 /*
 TODO: Look at including information such as variance to determine the threshold
 */
-func (rmt *RemoteScheduler) JobSignal() (float64, error) {
+func (rmt *RemoteScheduler) CalculateSignal() (float64, error) {
     y, err := rmt.mc.GetY()
     if err != nil {
         return 0.0, errors.New("y vector is not available")

@@ -4,7 +4,20 @@ import (
 	"log"
 	"sync"
 	"time"
+
+	"github.com/LucaChot/pronto/src/remote/types"
 )
+
+type PodInfo struct {
+    containerInfo  ContainerInfo
+    startTime      time.Time
+}
+
+func NewPodInfo() *PodInfo {
+    return &PodInfo{
+        startTime: time.Now(),
+    }
+}
 
 type EventCache struct {
     mu          sync.Mutex
@@ -15,17 +28,19 @@ type EventCache struct {
 
 	creating 	        map[string]struct{}
 	deleting	        map[string]struct{}
-	podContainers       map[string]*ContainerInfo
-	changeInPodCount	int
+	podContainers       map[string]*PodInfo
+	podCount	        int
     lastSignal          float64
 
-    signal          func() (float64, error)
-    updateCost      func(podCountDiff int, signalDiff float64) float64
-    publish         func(signal, podCost float64)
-
+    signal              types.Signal
+    capacity            types.Capacity
+    publisher           types.Publisher
 
     createInterval      time.Duration
     deleteInterval      time.Duration
+
+    BaselineEstimator
+    overProvision       int
 }
 
 
@@ -70,16 +85,16 @@ func (ec *EventCache) isWaiting() bool {
 	return false
 }
 
-func (ec *EventCache) GetLastSignal() float64 {
+func (ec *EventCache) GetOverProvision() float64 {
     ec.mu.Lock()
     defer ec.mu.Unlock()
-    return ec.lastSignal
+    return float64(ec.overProvision)
 }
 
-func (ec *EventCache) GetChangeInPodCount() int {
+func (ec *EventCache) GetPodCount() int {
     ec.mu.Lock()
     defer ec.mu.Unlock()
-    return ec.changeInPodCount
+    return ec.podCount
 }
 
 func (ec *EventCache) IsWaiting() bool {
@@ -95,49 +110,47 @@ func (ec *EventCache) OnTrigger() {
         ec.mu.Unlock()
 		return
 	}
-    changeInPodCount := ec.changeInPodCount
-    lastSignal := ec.lastSignal
-    ec.changeInPodCount = 0
+    podCount := ec.podCount
+    overProv := ec.overProvision
     ec.mu.Unlock()
 
     log.Printf("(cache) running signal and cost generation")
-	signal, err := ec.signal()
+	signal, err := ec.signal.CalculateSignal()
     if err != nil {
         log.Printf("(cache) error generating signal: %s", err)
         return
     }
-	cost := ec.updateCost(changeInPodCount, signal - lastSignal)
+    ec.capacity.Update(podCount, signal)
+    capacity := ec.capacity.GetCapacityFromSignal(signal)
     log.Printf("(cache) signal = %.4f", signal)
-    log.Printf("(cache) per-pod cost = %.4f", cost)
-	ec.publish(signal, cost)
+    log.Printf("(cache) per-pod cost = %.4f", capacity)
+	ec.publisher.Publish(
+        types.WithSignal(signal),
+        types.WithCapacity(capacity),
+        types.WithOverprovision(float64(overProv)))
 }
 
 func (ec *EventCache) OnEvent(e Event) {
     ec.mu.Lock()
     defer ec.mu.Unlock()
     log.Printf("(cache) received an event: %+v", e)
-    if !ec.isWaiting() {
-        signal, err := ec.signal()
-        if err != nil {
-            log.Printf("(cache) error generating signal: %s", err)
-        } else {
-            ec.lastSignal = signal
-        }
-    }
 	switch e.topic {
     case Create:
         if _, ok := ec.podContainers[e.podID]; !ok {
-            ec.changeInPodCount += 1
-            ec.podContainers[e.podID] = &ContainerInfo{}
+            ec.podCount += 1
+            ec.podContainers[e.podID] = NewPodInfo()
         }
-        ec.podContainers[e.podID].creating += 1
+        ec.podContainers[e.podID].containerInfo.creating += 1
         ec.creating[e.containerID] = struct{}{}
     case Start:
         delete(ec.creating, e.containerID)
-        containerInfo := ec.podContainers[e.podID]
-        containerInfo.creating -= 1
-        containerInfo.running += 1
-        if containerInfo.creating == 0 {
+        containerInfo, ok:= ec.podContainers[e.podID]
+        if !ok {
+            return
+        }
+        containerInfo.containerInfo.creating -= 1
+        containerInfo.containerInfo.running += 1
+        if containerInfo.containerInfo.creating == 0 {
             ends := time.Now().Add(ec.createInterval)
             if ends.After(ec.ends) {
                 if ec.timer != nil {
@@ -148,18 +161,35 @@ func (ec *EventCache) OnEvent(e Event) {
             }
         }
     case Exit:
-        containerInfo := ec.podContainers[e.podID]
-        containerInfo.running -= 1
-        if containerInfo.running == 0 {
-            ec.changeInPodCount -= 1
+        containerInfo, ok := ec.podContainers[e.podID]
+        if !ok {
+            return
         }
-        containerInfo.deleting += 1
+        containerInfo.containerInfo.running -= 1
+        containerInfo.containerInfo.deleting += 1
         ec.deleting[e.containerID] = struct{}{}
     case Delete:
         delete(ec.deleting, e.containerID)
-        containerInfo := ec.podContainers[e.podID]
-        containerInfo.deleting -= 1
-        if containerInfo.deleting == 0 {
+        containerInfo, ok := ec.podContainers[e.podID]
+        if !ok {
+            return
+        }
+        containerInfo.containerInfo.deleting -= 1
+        if containerInfo.containerInfo.deleting == 0 {
+            if containerInfo.containerInfo.running == 0 {
+                if !containerInfo.startTime.IsZero() {
+                    oversat := ec.BaselineEstimator.AddSample(time.Since(containerInfo.startTime).Seconds())
+                    //available := ec.capacity.GetCapacityFromPodCount(ec.podCount)
+                    //if available < 0.01 {
+                    if !oversat {
+                        ec.overProvision += 1
+                    } else {
+                        ec.overProvision /= 2
+                    }
+                }
+                delete(ec.podContainers, e.podID)
+                ec.podCount -= 1
+            }
             ends := time.Now().Add(ec.deleteInterval)
             if ends.After(ec.ends) {
                 if ec.timer != nil {
@@ -172,21 +202,21 @@ func (ec *EventCache) OnEvent(e Event) {
 	}
 }
 
-func (ec *EventCache) SetSignal(signal func() (float64, error)) {
+func (ec *EventCache) SetRemote(signal types.Signal) {
     ec.mu.Lock()
     ec.signal = signal
     ec.mu.Unlock()
 }
 
-func (ec *EventCache) SetUpdateCost(updateCost func(podCountDiff int, signalDiff float64) float64) {
+func (ec *EventCache) SetCapacity(capacity types.Capacity) {
     ec.mu.Lock()
-    ec.updateCost = updateCost
+    ec.capacity = capacity
     ec.mu.Unlock()
 }
 
-func (ec *EventCache) SetPublish(publish func(signal float64, podCost float64)) {
+func (ec *EventCache) SetPublisher(publisher types.Publisher) {
     ec.mu.Lock()
-    ec.publish = publish
+    ec.publisher = publisher
     ec.mu.Unlock()
 }
 
@@ -222,23 +252,26 @@ func NewEventCache(informer EventInformer, opts ...Option) *EventCache {
 		opt(&options)
 	}
 
+
+
     c := &EventCache{
         informer: informer,
         creating: make(map[string]struct{}),
         deleting: make(map[string]struct{}),
-        podContainers: make(map[string]*ContainerInfo),
+        podContainers: make(map[string]*PodInfo),
 
         ends: time.Now(),
-
-        signal: func() (float64, error) {return 0.0, nil},
-        updateCost: func(podCountDiff int, signalDiff float64) float64 {return 0.0},
-        publish: func(signal float64, podCost float64) {},
 
         createInterval: options.createInterval,
         deleteInterval: options.deleteInterval,
     }
 
+    c.SetBaselineEstimator(10, 0.2, 0.05, 1.2, 0.25)
+
     c.informer.SetOnEvent(c.OnEvent)
-    c.informer.Start()
     return c
+}
+
+func (ec *EventCache) Start() {
+    ec.informer.Start()
 }

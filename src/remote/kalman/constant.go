@@ -25,6 +25,8 @@ func (kf *Constant) State() ([]float64) {
     return kf.x[:]
 }
 
+func (kf *Constant) Revert() () {}
+
 func (kf *Constant) ForceState(newX[]float64) (error) {
     if len(newX) != 1 {
         return errors.New("initX must have length 1")
